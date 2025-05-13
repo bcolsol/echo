@@ -1,19 +1,25 @@
-// src/bot/monitor.ts
-
-import { Connection, PublicKey, Logs, Commitment } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  Logs,
+  Commitment,
+  ParsedTransactionWithMeta,
+} from "@solana/web3.js"; // Added ParsedTransactionWithMeta
 import { SolanaClient } from "../solana/client";
 import { TokenMetadataService } from "../solana/tokenMetadata";
 import { TradeExecutor } from "./executor";
 import { analyzeTrade, isDexInteraction } from "../solana/analyzer";
-import { COMMITMENT_LEVEL, MONITORED_WALLETS } from "../config";
+import {
+  COMMITMENT_LEVEL,
+  MONITORED_WALLETS,
+  MANAGE_WITH_SLTP,
+} from "../config";
 import { logError, logInfo, logWarn } from "../utils/logging";
 import { shortenAddress } from "../utils/helpers";
+import { StateManager } from "./stateManager";
 
-/**
- * Monitors specified Solana wallets for DEX activity and triggers copy trades.
- */
 export class WalletMonitor {
-  private readonly connection: Connection; // Direct connection for subscriptions
+  private readonly connection: Connection;
   private readonly solanaClient: SolanaClient;
   private readonly tokenMetadataService: TokenMetadataService;
   private readonly tradeExecutor: TradeExecutor;
@@ -23,34 +29,27 @@ export class WalletMonitor {
   }>;
   private readonly subscriptionCommitment: Commitment;
   private readonly fetchCommitment: Commitment;
-  private subscriptionIds: number[] = []; // To keep track of active subscriptions
+  private subscriptionIds: number[] = [];
+  private readonly stateManager: StateManager;
 
-  /**
-   * Creates an instance of WalletMonitor.
-   * @param connection The raw Solana Connection object (for subscriptions).
-   * @param solanaClient The SolanaClient instance (for fetching transactions).
-   * @param tokenMetadataService The TokenMetadataService instance.
-   * @param tradeExecutor The TradeExecutor instance.
-   * @param monitoredWallets Array of wallet objects to monitor.
-   * @param subscriptionCommitment Commitment level for log subscriptions.
-   * @param fetchCommitment Commitment level for fetching transaction details.
-   */
   constructor(
     connection: Connection,
     solanaClient: SolanaClient,
     tokenMetadataService: TokenMetadataService,
     tradeExecutor: TradeExecutor,
+    stateManager: StateManager, // Add StateManager to constructor
     monitoredWallets: ReadonlyArray<{
       address: string;
       pubkey: PublicKey;
-    }> = MONITORED_WALLETS,
-    subscriptionCommitment: Commitment = COMMITMENT_LEVEL.subscription,
-    fetchCommitment: Commitment = COMMITMENT_LEVEL.fetch
+    }> = MONITORED_WALLETS, // Default from config
+    subscriptionCommitment: Commitment = COMMITMENT_LEVEL.subscription, // Default from config
+    fetchCommitment: Commitment = COMMITMENT_LEVEL.fetch // Default from config
   ) {
     this.connection = connection;
     this.solanaClient = solanaClient;
     this.tokenMetadataService = tokenMetadataService;
     this.tradeExecutor = tradeExecutor;
+    this.stateManager = stateManager; // Initialize StateManager
     this.monitoredWallets = monitoredWallets;
     this.subscriptionCommitment = subscriptionCommitment;
     this.fetchCommitment = fetchCommitment;
@@ -60,21 +59,22 @@ export class WalletMonitor {
     }
   }
 
-  /**
-   * Starts monitoring the configured wallets by subscribing to their logs.
-   */
   startMonitoring(): void {
     logInfo(
       `Starting wallet monitoring for ${this.monitoredWallets.length} wallets...`
     );
-    this.subscriptionIds = []; // Clear any previous subscription IDs
+    logInfo(
+      `SL/TP Management Mode: ${
+        MANAGE_WITH_SLTP ? "ENABLED" : "DISABLED (Full Copy)"
+      }`
+    );
+    this.subscriptionIds = [];
 
     this.monitoredWallets.forEach(({ address, pubkey }) => {
       try {
         const subscriptionId = this.connection.onLogs(
           pubkey,
           (logs: Logs, context) => {
-            // Asynchronously handle log processing to avoid blocking the listener
             this.handleLog(logs, pubkey, address).catch((err) => {
               logError(
                 `[${shortenAddress(
@@ -109,14 +109,6 @@ export class WalletMonitor {
     }
   }
 
-  /**
-   * Handles incoming logs for a monitored wallet.
-   * Fetches the transaction, checks for DEX interaction, analyzes the trade,
-   * and triggers the executor if a relevant trade is detected.
-   * @param logs The Logs object from the subscription.
-   * @param walletPubKey The PublicKey of the monitored wallet.
-   * @param walletAddress The string address of the monitored wallet (for logging).
-   */
   private async handleLog(
     logs: Logs,
     walletPubKey: PublicKey,
@@ -126,14 +118,12 @@ export class WalletMonitor {
     const shortAddr = shortenAddress(walletAddress);
     logInfo(`[${shortAddr}] Received log for signature: ${signature}`);
 
-    // Check if the log indicates success (basic filter)
     if (logs.err) {
       logInfo(`[${shortAddr}] Skipping tx ${signature}: Log contains error.`);
       return;
     }
 
     try {
-      // Fetch the full parsed transaction details
       const transaction = await this.solanaClient.getParsedTransaction(
         signature,
         this.fetchCommitment
@@ -146,13 +136,11 @@ export class WalletMonitor {
         return;
       }
 
-      // Check if it's a potential DEX interaction
       if (isDexInteraction(transaction)) {
         logInfo(
           `[${shortAddr}] DEX interaction detected in tx ${signature}. Analyzing trade...`
         );
 
-        // Analyze the balance changes to identify the trade
         const detectedTrade = await analyzeTrade(
           transaction,
           walletPubKey,
@@ -160,10 +148,28 @@ export class WalletMonitor {
         );
 
         if (detectedTrade) {
+          // Conditional logic for processing based on MANAGE_WITH_SLTP
+          if (detectedTrade.type === "sell" && MANAGE_WITH_SLTP) {
+            const holding = this.stateManager.getHolding(
+              detectedTrade.tokenMint
+            );
+            // If the bot holds this token AND it has purchase price info (meaning it's SL/TP managed)
+            if (
+              holding &&
+              holding.avgPurchasePriceInSol !== undefined &&
+              holding.tokenDecimals !== undefined
+            ) {
+              logInfo(
+                `[${shortAddr}] Monitored wallet sold ${detectedTrade.tokenInfo.symbol}. Bot holds and manages this with SL/TP. Ignoring copy-sell for tx ${signature}.`
+              );
+              return; // Do not process this copy-sell
+            }
+          }
+
+          // If it's a buy, or a sell in full-copy mode, or a sell of a non-SL/TP managed token
           logInfo(
-            `[${shortAddr}] Trade detected for ${detectedTrade.tokenInfo.symbol} in tx ${signature}. Passing to executor.`
+            `[${shortAddr}] Trade detected for ${detectedTrade.tokenInfo.symbol} (Type: ${detectedTrade.type}) in tx ${signature}. Passing to executor.`
           );
-          // Trigger the trade executor (handles buy/sell logic internally)
           await this.tradeExecutor.processTrade(detectedTrade);
         } else {
           logInfo(
@@ -176,14 +182,10 @@ export class WalletMonitor {
         );
       }
     } catch (err) {
-      // Catch errors during transaction fetching or analysis
       logError(`[${shortAddr}] Error processing signature ${signature}:`, err);
     }
   }
 
-  /**
-   * Stops monitoring by unsubscribing from all active log subscriptions.
-   */
   async stopMonitoring(): Promise<void> {
     logInfo("Stopping wallet monitoring...");
     if (this.subscriptionIds.length === 0) {
@@ -194,10 +196,10 @@ export class WalletMonitor {
       logInfo(`Removing subscription ID: ${id}`);
       return this.connection
         .removeOnLogsListener(id)
-        .catch((err) => logError(`Error removing subscription ${id}:`, err)); // Catch individual errors
+        .catch((err) => logError(`Error removing subscription ${id}:`, err));
     });
     await Promise.all(promises);
-    this.subscriptionIds = []; // Clear the array
+    this.subscriptionIds = [];
     logInfo("All log subscriptions removed.");
   }
 }
