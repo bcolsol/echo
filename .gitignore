@@ -135,4 +135,4 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-.bot_holdings.json
+bot_holdings.json

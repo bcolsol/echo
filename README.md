@@ -26,6 +26,77 @@ In this space, trust is everything.
 
 **No Fees**: Since the bot runs locally, you dont pay any fees like you would with most closed bots.
 
+## Disclaimer: Speed and Use Cases
+
+Echo is designed to be relatively fast, typically taking 1-2 seconds from detecting a trade by a monitored wallet to its own trade being confirmed on-chain. However, it's important to understand its intended use:
+
+- **Best For:** Copy trading on more established or moderately volatile tokens where a 1-2 second reaction time is acceptable for capturing the intended move. It's also well-suited for managing positions with Stop-Loss/Take-Profit on these types of coins.
+- **Not Ideal For:** Trying to snipe brand new, highly volatile memecoin launches where every millisecond is critical to get in at the absolute earliest possible moment. For such scenarios, specialized sniping bots with different architectures are required.
+
+Echo prioritizes reliable trade replication using Jupiter API
+
+## How Echo Works: From Detection to Trade
+
+When Echo is set up to monitor a wallet, here's the general process it follows to copy a trade or manage a position:
+
+### Operating Modes
+
+Echo has two main modes, set by the `MANAGE_WITH_SLTP` variable in your `.env` configuration file:
+
+1.  **Full Copy Mode (`MANAGE_WITH_SLTP=false`):**
+    - The bot copies both buys and sells from the monitored wallet. If the target buys, Echo buys. If the target sells a token Echo holds (from a previous copy), Echo sells its entire position of that token.
+2.  **Buy & Manage Mode (`MANAGE_WITH_SLTP=true`):**
+    - Echo copies buys from the monitored wallet and records the purchase price of the acquired tokens.
+    - It then ignores sell signals from the monitored wallet for these holdings. Instead, it uses its own Stop-Loss (SL) and Take-Profit (TP) logic. If the price of a held token reaches the pre-defined SL or TP percentage levels, Echo will sell the entire position.
+
+### The Trade Execution Pipeline
+
+Here's a breakdown of the steps involved when Echo decides to make a trade:
+
+1.  **Trade Detection (via `WalletMonitor`):**
+
+    - **Log Monitoring:** Echo listens for new transaction logs from the wallets you're monitoring. This relies on your Solana RPC node to deliver these logs once transactions reach a `confirmed` state.
+    - **Transaction Retrieval:** Once a relevant log signature is found, the bot fetches the complete transaction data using `getParsedTransaction`.
+
+2.  **Trade Analysis (via `analyzeTrade`):**
+
+    - **DEX Check:** It confirms the transaction involves a known DEX (Decentralized Exchange).
+    - **Details Extraction:** It analyzes the transaction to see what token was traded, the amounts, and the direction (buy/sell). Token metadata (like symbol and decimals) is also retrieved, using a cache first, then on-chain Metaplex data if needed.
+
+3.  **Quoting & Swap Preparation (via `TradeExecutor` with Jupiter API):**
+
+    - **Get Quote (`getJupiterQuote`):** Echo requests a swap quote from Jupiter's V6 API.
+      - For buys: Quoting SOL/WSOL to the target token, using the bot's configured `COPY_TRADE_AMOUNT_SOL`.
+      - For sells (either copy-sells or SL/TP-triggered sells): Quoting the entire held amount of the target token to SOL/WSOL.
+    - **Get Swap Transaction (`getJupiterSwap`):** If the quote is acceptable, Echo gets the serialized transaction data from Jupiter needed to execute that swap.
+    - _Note: These are network calls to Jupiter's API, so their speed depends on API responsiveness and your internet connection._
+
+4.  **Local Transaction Processing:**
+
+    - **Signing:** The transaction data from Jupiter is deserialized, and the bot signs it with its own wallet's private key. This is a fast, local operation.
+
+5.  **Execution & Confirmation (via `SolanaClient`):**
+    - **Broadcasting (`sendRawTransaction`):** The signed transaction is sent to your Solana RPC node, which then tries to get it to the current Solana network leader. The `skipPreflight: true` option is used to submit it without an initial client-side simulation, potentially saving a little time.
+    - **Waiting for Confirmation (`confirmTransaction`):** The bot waits for the transaction to be confirmed on the Solana network to the specified commitment level. The time this takes is influenced by network congestion and the use (or absence) of priority fees.
+
+### Understanding Performance
+
+To optimize or understand the bot's speed, these are the main stages where time is spent.
+
+1.  **T1: Log Receipt to `getParsedTransaction` return:** RPC latency for fetching initial transaction data.
+2.  **T2: Time for `analyzeTrade`:** Local analysis speed. Usually quick, but can be slower if fetching new token metadata on-chain for the first time.
+3.  **T3: Time for `getJupiterQuote`:** Latency of the first API call to Jupiter.
+4.  **T4: Time for `getJupiterSwap`:** Latency of the second API call to Jupiter.
+5.  **T5: `sendRawTransaction` to return a signature:** How quickly your RPC node accepts the transaction and provides a signature (this is not full confirmation).
+6.  **T6: Time for `confirmTransaction` to return:** Network confirmation time. This is heavily dependent on current network load and whether competitive priority fees are used.
+
+### Stop-Loss/Take-Profit Monitoring (If `MANAGE_WITH_SLTP=true`)
+
+- A separate process runs at an interval defined by `PRICE_CHECK_INTERVAL_MS` in your configuration.
+- This loop iterates through all tokens the bot currently holds for which a purchase price has been recorded.
+- For each of these tokens, it fetches the current market price by requesting a quote from Jupiter (Token -> WSOL for the entire held amount).
+- If the current price meets the configured Stop-Loss or Take-Profit percentage relative to its recorded average purchase price, the bot will trigger a sell of the entire position for that token via the `TradeExecutor`.
+
 ## ✨ Current Features (MVP)
 
 - **Wallet Monitoring:** Listens to transactions involving specified Solana wallets.
@@ -36,6 +107,7 @@ In this space, trust is everything.
 - **Copy Sell Logic:** Detects Token -> SOL/WSOL swaps by monitored wallets.
   - If the bot holds that specific token (because it previously copied a buy triggered by the _same_ wallet), it sells the **entire** bot's position for that token.
   - Also uses the **Jupiter API (v6)** for sell quotes and execution.
+- **SL/TP Management:** Manages stop-loss and take-profit levels for copied buys.
 - **Basic State Persistence:** Remembers which tokens the bot bought (and the trigger wallet) using a local `bot_holdings.json` file, allowing sell logic to function across restarts.
 - **Simulation Mode:** Run the bot without executing real trades (`EXECUTE_TRADES=false` in `.env`). Right now this is best used for development only, but in the future this can be potentialy extended to simulate trades and see profit/loss without trading
 - **Basic Logging:** Outputs information about detected trades, API calls, and execution/simulation results to the console.
@@ -45,11 +117,10 @@ In this space, trust is everything.
 This project is actively evolving. Here are some of the features planned for the near future (priorities may shift based on feedback):
 
 1.  **Dynamic Buy Amount:** Option to configure the bot to copy a percentage of the monitored wallet's trade size (with a configurable cap) instead of always using a fixed SOL amount.
-2.  **Take Profit / Stop Loss Options:** Introduce an alternative sell mechanism where the bot monitors the price of its holdings and sells based on configurable percentage gains (TP) or losses (SL), requiring price feed integration (likely via Jupiter initially).
-3.  **Basic Token Vetting:** Before copying a buy, perform checks (e.g., query Jupiter for basic liquidity/existence) to avoid trading highly illiquid or potentially scam tokens.
-4.  **Enhanced Error Handling & Retries:** Make the bot more resilient to temporary RPC or Jupiter API errors.
-5.  **Structured Logging:** Implement a proper logging library (like Pino or Winston) for leveled, structured logging (JSON).
-6.  **Docker Support:** Implement docker support for easier install/usage
+2.  **Basic Token Vetting:** Before copying a buy, perform checks (e.g., query Jupiter for basic liquidity/existence) to avoid trading highly illiquid or potentially scam tokens.
+3.  **Enhanced Error Handling & Retries:** Make the bot more resilient to temporary RPC or Jupiter API errors.
+4.  **Structured Logging:** Implement a proper logging library (like Pino or Winston) for leveled, structured logging (JSON).
+5.  **Docker Support:** Implement docker support for easier install/usage
 
 ## ⚙️ Setup & Configuration
 
@@ -64,7 +135,7 @@ Follow these steps to set up and run the bot:
 
 - Clone the repository:
   ```bash
-  git clone [https://github.com/bcolsol/echo.git](https://github.com/bcolsol/echo.git) # Replace with your repo URL
+  git clone [https://github.com/bcolsol/echo.git](https://github.com/bcolsol/echo.git)
   cd echo
   ```
 - Install dependencies:
@@ -100,6 +171,15 @@ Follow these steps to set up and run the bot:
   # Set to "true" to execute REAL trades, "false" to only SIMULATE.
   # Simulate is mostly used for development
   EXECUTE_TRADES=true
+
+  # Set to "true" to enable SL/TP management for copied buys, "false" for full # copy mode.
+  MANAGE_WITH_SLTP=false
+  # Percentage gain for take-profit (e.g., 20 for 20%). Required if MANAGE_WITH_SLTP=true.
+  TAKE_PROFIT_PERCENTAGE=20
+  # Percentage loss for stop-loss (e.g., 10 for 10%). Required if MANAGE_WITH_SLTP=true.
+  STOP_LOSS_PERCENTAGE=10
+  # Interval in milliseconds to check prices for SL/TP (e.g., 60000 for 1  minute). Required if MANAGE_WITH_SLTP=true.
+  PRICE_CHECK_INTERVAL_MS=60000
   ```
 
 **4. Setting up wallets to track**
