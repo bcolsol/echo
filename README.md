@@ -4,34 +4,28 @@
 
 ## 🚨 IMPORTANT DISCLAIMERS 🚨
 
-- **⚠️ Heavy Development:** This project is currently a Minimum Viable Product (MVP) and is under **heavy development**. Expect bugs, breaking changes, and incomplete features. **DO NOT use with significant funds.**
+- **⚠️ Ongoing Development:** This project is currently under **heavy development**. Expect bugs, breaking changes, and incomplete features. **DO NOT use with significant funds.**
 - **⚠️ Financial Risk:** This bot executes trades automatically based on its configuration and the actions of wallets it monitors. You are solely responsible for any financial losses incurred. **Use at your own risk.**
 - **⚠️ Security Risk:** You need to provide your bot wallet's private key in the `.env` file. Handle this file with extreme care. Anyone gaining access to it can control your bot's funds. It is strongly recommended to use a **dedicated bot wallet** funded only with the amount you are willing to risk.
 - **⚠️ Scam Warning:** The crypto space is full of scams.
   - **Only use code from the official `main` branch** of this repository. Be extremely cautious of code from other branches or forks unless you have verified it yourself.
   - **Verify the code:** Since this is open source, take the time to understand what the code does before running it.
-  - **Beware of impersonators:** Be wary of anyone contacting you claiming to be a developer or offering paid support, especially if they ask for funds or private keys. Official communication channels will be listed below.
+  - **Beware of impersonators:** Be wary of anyone contacting you claiming to be a developer or offering paid support, especially if they ask for funds or private keys. Official communication channel is on [discord](https://discord.gg/AHdWVrKB)
 
 ---
 
 ## Introduction
 
-As a trader myself, I got sick of using trade and copy trade bots where fees eat up any profit I made. That’s how this project was born.
+As a trader, I got tired of bot fees eating into my profits. So I built my own copy trading bot, simple, free, and fully under my control.
 
-**Why Open Source?**
+Now I am open-sourcing it, not just to build trust, but to invite collaboration. If you are a trader, builder, or just curious, jump in. Let's improve it together and build tools that actually work for us.
 
-In this space, trust is everything.
+## Use cases
 
-**Transparency**: The code is fully public. You can see exactly how it works, no surprises, no shady stuff.
+Echo is designed to be relatively fast, typically taking 1-2 seconds from detecting a trade by a monitored wallet to its own trade being confirmed. Having said this, it's important to understand its intended use:
 
-**No Fees**: Since the bot runs locally, you dont pay any fees like you would with most closed bots.
-
-## Disclaimer: Speed and Use Cases
-
-Echo is designed to be relatively fast, typically taking 1-2 seconds from detecting a trade by a monitored wallet to its own trade being confirmed on-chain. However, it's important to understand its intended use:
-
-- **Best For:** Copy trading on more established or moderately volatile tokens where a 1-2 second reaction time is acceptable for capturing the intended move. It's also well-suited for managing positions with Stop-Loss/Take-Profit on these types of coins.
-- **Not Ideal For:** Trying to snipe brand new, highly volatile memecoin launches where every millisecond is critical to get in at the absolute earliest possible moment. For such scenarios, specialized sniping bots with different architectures are required.
+- **Best For:** Copy trading on more established or moderately volatile tokens where a 1-2 second reaction time is acceptable. It's also well-suited for managing positions with Stop-Loss/Take-Profit on these types of coins.
+- **Not Ideal For:** Trying to snipe brand new, highly volatile memecoin launches where every millisecond is critical to get in at the absolute earliest possible moment. For such cases, specialized sniping bots with different architectures are required.
 
 Echo prioritizes reliable trade replication using Jupiter API
 
@@ -79,17 +73,6 @@ Here's a breakdown of the steps involved when Echo decides to make a trade:
     - **Broadcasting (`sendRawTransaction`):** The signed transaction is sent to your Solana RPC node, which then tries to get it to the current Solana network leader. The `skipPreflight: true` option is used to submit it without an initial client-side simulation, potentially saving a little time.
     - **Waiting for Confirmation (`confirmTransaction`):** The bot waits for the transaction to be confirmed on the Solana network to the specified commitment level. The time this takes is influenced by network congestion and the use (or absence) of priority fees.
 
-### Understanding Performance
-
-To optimize or understand the bot's speed, these are the main stages where time is spent.
-
-1.  **T1: Log Receipt to `getParsedTransaction` return:** RPC latency for fetching initial transaction data.
-2.  **T2: Time for `analyzeTrade`:** Local analysis speed. Usually quick, but can be slower if fetching new token metadata on-chain for the first time.
-3.  **T3: Time for `getJupiterQuote`:** Latency of the first API call to Jupiter.
-4.  **T4: Time for `getJupiterSwap`:** Latency of the second API call to Jupiter.
-5.  **T5: `sendRawTransaction` to return a signature:** How quickly your RPC node accepts the transaction and provides a signature (this is not full confirmation).
-6.  **T6: Time for `confirmTransaction` to return:** Network confirmation time. This is heavily dependent on current network load and whether competitive priority fees are used.
-
 ### Stop-Loss/Take-Profit Monitoring (If `MANAGE_WITH_SLTP=true`)
 
 - A separate process runs at an interval defined by `PRICE_CHECK_INTERVAL_MS` in your configuration.
@@ -103,7 +86,7 @@ To optimize or understand the bot's speed, these are the main stages where time 
 - **DEX Interaction Filter:** Identifies transactions involving swaps on major Solana DEXs.
 - **Copy Buy Logic:** Detects SOL/WSOL -> Token swaps by monitored wallets and executes a corresponding buy trade using the bot's wallet.
   - Uses a **fixed SOL amount** (configurable in `.env`) for buys.
-  - Leverages the **Jupiter API (v6)** for trade quoting and execution.
+  - Uses the **Jupiter API (v6)** for trade quoting and execution.
 - **Copy Sell Logic:** Detects Token -> SOL/WSOL swaps by monitored wallets.
   - If the bot holds that specific token (because it previously copied a buy triggered by the _same_ wallet), it sells the **entire** bot's position for that token.
   - Also uses the **Jupiter API (v6)** for sell quotes and execution.
@@ -114,7 +97,7 @@ To optimize or understand the bot's speed, these are the main stages where time 
 
 ## 🚀 Upcoming Features (Roadmap)
 
-This project is actively evolving. Here are some of the features planned for the near future (priorities may shift based on feedback):
+This project is actively evolving. Here are some of the features planned for the near future (priorities may shift based on community feedback):
 
 1.  **Dynamic Buy Amount:** Option to configure the bot to copy a percentage of the monitored wallet's trade size (with a configurable cap) instead of always using a fixed SOL amount.
 2.  **Basic Token Vetting:** Before copying a buy, perform checks (e.g., query Jupiter for basic liquidity/existence) to avoid trading highly illiquid or potentially scam tokens.
@@ -123,6 +106,8 @@ This project is actively evolving. Here are some of the features planned for the
 5.  **Docker Support:** Implement docker support for easier install/usage
 
 ## ⚙️ Setup & Configuration
+
+### Not a developer? Join our [discord](https://discord.gg/AHdWVrKB) to get help with setting up the bot.
 
 Follow these steps to set up and run the bot:
 
@@ -221,7 +206,6 @@ This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) f
 
 ## 💬 Community & Support
 
-Join our community to discuss the bot, ask questions, share strategies, and get support:
+Join our community to discuss the bot, ask questions, share trading strategies, or get support:
 
-- **Discord:** coming soon
-- **Telegram:** coming soon
+- **[Discord](https://discord.gg/AHdWVrKB)**
