@@ -136,3 +136,4 @@ dist
 .pnp.*
 
 bot_holdings.json
+config.json
