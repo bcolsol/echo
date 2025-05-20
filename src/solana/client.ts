@@ -15,7 +15,7 @@ import {
   Finality, // Import Finality type
   GetVersionedTransactionConfig, // Import config type for getParsedTransaction
 } from "@solana/web3.js";
-import { logDebug, logError, logInfo, logWarn } from "../utils/logging";
+import { logError, logInfo, logWarn } from "../utils/logging";
 import { COMMITMENT_LEVEL } from "../config"; // Import commitment levels
 
 /**
@@ -45,12 +45,6 @@ export class SolanaClient {
     signature: TransactionSignature,
     commitment: Commitment = COMMITMENT_LEVEL.fetch
   ) {
-    logDebug(
-      `Fetching parsed transaction: ${signature} with commitment: ${commitment}`
-    );
-
-    // Prepare the configuration object for getParsedTransaction
-    // Ensure the commitment level is compatible with what the config expects (Finality)
     const finalityCommitment = (
       commitment === "processed" ? "confirmed" : commitment
     ) as Finality;
@@ -58,17 +52,14 @@ export class SolanaClient {
       logWarn(
         `Commitment 'processed' may not be suitable for getParsedTransaction in all scenarios. Using 'confirmed' instead for config object for tx ${signature}.`
       );
-      // Note: While 'processed' might work for the top-level commitment parameter of the method,
-      // it's safer to use 'confirmed'/'finalized' within the config object if types demand Finality.
     }
 
     const config: GetVersionedTransactionConfig = {
       maxSupportedTransactionVersion: 0,
-      commitment: finalityCommitment, // Use the adjusted and casted commitment
+      commitment: finalityCommitment,
     };
 
     try {
-      // Pass the config object to the method
       const transaction = await this.connection.getParsedTransaction(
         signature,
         config
@@ -100,7 +91,6 @@ export class SolanaClient {
     serializedTransaction: Buffer | Uint8Array,
     options: SendOptions = { skipPreflight: true, maxRetries: 5 }
   ): Promise<TransactionSignature> {
-    logDebug(`Sending raw transaction with options:`, options);
     try {
       const signature = await this.connection.sendRawTransaction(
         serializedTransaction,
@@ -110,7 +100,6 @@ export class SolanaClient {
       return signature;
     } catch (error: any) {
       logError(`Error sending raw transaction:`, error.message ?? error);
-      // Re-throw the error to be handled by the caller
       throw error;
     }
   }
@@ -130,7 +119,7 @@ export class SolanaClient {
     logInfo(
       `Confirming transaction ${strategy.signature} with commitment: ${commitment}`
     );
-    logDebug(`Confirmation strategy:`, strategy);
+
     try {
       const result = await this.connection.confirmTransaction(
         strategy,
@@ -167,26 +156,20 @@ export class SolanaClient {
    */
   async simulateVersionedTransaction(
     transaction: VersionedTransaction,
-    // Use the specific config type for VersionedTransaction overload
     config: SimulateTransactionConfig = {
-      commitment: COMMITMENT_LEVEL.confirmation, // Default commitment
-      replaceRecentBlockhash: true, // Often helpful for simulation
-      sigVerify: false, // Usually not needed for simulation, saves RPC compute
+      commitment: COMMITMENT_LEVEL.confirmation,
+      replaceRecentBlockhash: true,
+      sigVerify: false,
     }
   ): Promise<RpcResponseAndContext<SimulatedTransactionResponse>> {
-    logDebug(`Simulating versioned transaction with config:`, config);
     try {
-      // Pass the transaction and the config object
-      // Note: The 'logs' property is NOT part of SimulateTransactionConfig
       const simulationResult = await this.connection.simulateTransaction(
         transaction,
         config
       );
-      logDebug(`Simulation response received.`);
       return simulationResult;
     } catch (error: any) {
       logError(`Error simulating transaction:`, error.message ?? error);
-      // Re-throw the error to be handled by the caller
       throw error;
     }
   }
@@ -200,12 +183,10 @@ export class SolanaClient {
   async getLatestBlockhash(
     commitment: Commitment = COMMITMENT_LEVEL.fetch
   ): Promise<BlockhashWithExpiryBlockHeight> {
-    logDebug(`Fetching latest blockhash with commitment: ${commitment}`);
     try {
       const blockhashInfo = await this.connection.getLatestBlockhash(
         commitment
       );
-      logDebug(`Latest blockhash fetched: ${blockhashInfo.blockhash}`);
       return blockhashInfo;
     } catch (error: any) {
       logError(`Error fetching latest blockhash:`, error.message ?? error);
@@ -221,12 +202,8 @@ export class SolanaClient {
    */
   async getAddressLookupTable(
     lookupTableKey: PublicKey,
-    commitment: Commitment = COMMITMENT_LEVEL.fetch // Keep param type as Commitment for flexibility
+    commitment: Commitment = COMMITMENT_LEVEL.fetch
   ): Promise<AddressLookupTableAccount | null> {
-    logDebug(
-      `Fetching address lookup table account: ${lookupTableKey.toBase58()}`
-    );
-    // Ensure the commitment passed to the actual call is compatible with Finality
     const finalityCommitment = (
       commitment === "processed" ? "confirmed" : commitment
     ) as Finality;
@@ -237,27 +214,22 @@ export class SolanaClient {
     }
 
     try {
-      // Use the singular method name and pass the casted commitment
       const account = await this.connection.getAddressLookupTable(
         lookupTableKey,
         { commitment: finalityCommitment }
       );
-      if (account.value) {
-        logDebug(
-          `Fetched lookup table account ${lookupTableKey.toBase58()} successfully.`
-        );
-      } else {
+      if (!account.value) {
         logWarn(
           `Lookup table account ${lookupTableKey.toBase58()} not found at commitment ${finalityCommitment}.`
         );
       }
-      return account.value; // Return the account or null
+      return account.value;
     } catch (error: any) {
       logError(
         `Error fetching address lookup table account ${lookupTableKey.toBase58()}:`,
         error.message ?? error
       );
-      return null; // Return null on error
+      return null;
     }
   }
 
@@ -269,7 +241,7 @@ export class SolanaClient {
    */
   async getNeededLookupTableAccounts(
     message: VersionedMessage,
-    commitment: Commitment = COMMITMENT_LEVEL.fetch // Keep param type as Commitment
+    commitment: Commitment = COMMITMENT_LEVEL.fetch
   ): Promise<AddressLookupTableAccount[]> {
     const lookupTableKeys = message.addressTableLookups.map(
       (lookup) => lookup.accountKey
@@ -277,28 +249,18 @@ export class SolanaClient {
     if (lookupTableKeys.length === 0) {
       return [];
     }
-    logDebug(
-      `Fetching ${lookupTableKeys.length} address lookup table accounts...`
-    );
 
-    // Fetch each table individually using Promise.all, passing the original commitment
-    // The getAddressLookupTable method now handles the cast/check internally
     const fetchPromises = lookupTableKeys.map((key) =>
       this.getAddressLookupTable(key, commitment)
     );
     const lookupTableAccountsNullable = await Promise.all(fetchPromises);
 
-    // Filter out any null results (tables not found or errors)
     const lookupTableAccounts = lookupTableAccountsNullable.filter(
       (acc): acc is AddressLookupTableAccount => acc !== null
     );
 
-    logDebug(
-      `Successfully fetched ${lookupTableAccounts.length} out of ${lookupTableKeys.length} needed lookup table accounts.`
-    );
     if (lookupTableAccounts.length < lookupTableKeys.length) {
       logWarn(`Could not fetch all required lookup tables for message.`);
-      // Consider if you need to handle this case specifically (e.g., throw an error)
     }
 
     return lookupTableAccounts;

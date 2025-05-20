@@ -10,10 +10,3 @@ export const connection = new Connection(RPC_ENDPOINT, {
   // Disable transaction confirmation checks here if you handle retries/timeouts manually elsewhere
   // disableRetryOnRateLimit: true,
 });
-
-logInfo(
-  `Solana connection established to ${RPC_ENDPOINT} with commitment ${COMMITMENT_LEVEL.fetch}`
-);
-
-// You might want to add a health check function here later
-// async function checkConnection() { ... } checkConnection();

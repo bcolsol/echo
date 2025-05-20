@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { JupiterQuoteResponse, JupiterSwapResponse } from "../types";
-import { logError, logInfo } from "../utils/logging";
+import { logError } from "../utils/logging";
 
 /**
  * Fetches a trade quote from the Jupiter API V6.
@@ -29,7 +29,6 @@ export async function getJupiterQuote(
   });
 
   const quoteUrl = `${quoteApiUrl}?${urlParams.toString()}`;
-  logInfo(`[Jupiter] Fetching quote: ${quoteUrl}`);
 
   try {
     const response = await fetch(quoteUrl, {
@@ -41,7 +40,10 @@ export async function getJupiterQuote(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      logError(`[Jupiter] Quote API Error ${response.status}: ${errorBody}`);
+      // Logged by TradeExecutor if it's critical for a trade action
+      logError(
+        `[JupiterAPI] Quote API Error ${response.status} for ${inputMint}->${outputMint}: ${errorBody}`
+      );
       return null;
     }
 
@@ -49,7 +51,8 @@ export async function getJupiterQuote(
     return quoteData;
   } catch (error: any) {
     logError(
-      `[Jupiter] CRITICAL: Exception during Jupiter Quote API call: ${error.message}`
+      // This is a critical exception and should be logged
+      `[JupiterAPI] CRITICAL: Exception during Jupiter Quote API call for ${inputMint}->${outputMint}: ${error.message}`
     );
     return null;
   }
@@ -75,10 +78,6 @@ export async function getJupiterSwap(
     wrapAndUnwrapSol: wrapAndUnwrapSol,
   };
 
-  logInfo(
-    `[Jupiter] Fetching swap instructions for user ${userPublicKey.toBase58()}`
-  );
-
   try {
     const response = await fetch(swapApiUrl, {
       method: "POST",
@@ -91,7 +90,12 @@ export async function getJupiterSwap(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      logError(`[Jupiter] Swap API Error ${response.status}: ${errorBody}`);
+      // Logged by TradeExecutor if it's critical for a trade action
+      logError(
+        `[JupiterAPI] Swap API Error ${
+          response.status
+        } for user ${userPublicKey.toBase58()}: ${errorBody}`
+      );
       return null;
     }
 
@@ -99,7 +103,10 @@ export async function getJupiterSwap(
     return swapData;
   } catch (error: any) {
     logError(
-      `[Jupiter] CRITICAL: Exception during Jupiter Swap API call: ${error.message}`
+      // This is a critical exception and should be logged
+      `[JupiterAPI] CRITICAL: Exception during Jupiter Swap API call for user ${userPublicKey.toBase58()}: ${
+        error.message
+      }`
     );
     return null;
   }

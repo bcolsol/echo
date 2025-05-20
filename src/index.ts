@@ -4,13 +4,7 @@ import { SolanaClient } from "./solana/client";
 import { TokenMetadataService } from "./solana/tokenMetadata";
 import { TradeExecutor } from "./bot/executor";
 import { WalletMonitor } from "./bot/monitor";
-import {
-  logCritical,
-  logInfo,
-  logWarn,
-  logDebug,
-  logError,
-} from "./utils/logging";
+import { logCritical, logInfo, logWarn, logError } from "./utils/logging";
 import { sleep } from "./utils/helpers";
 import {
   BOT_KEYPAIR,
@@ -28,6 +22,7 @@ import {
   STOP_LOSS_PERCENTAGE,
   PRICE_CHECK_INTERVAL_MS,
   WSOL_MINT,
+  RPC_ENDPOINT, // Added for logging
 } from "./config";
 
 import { StateManager } from "./bot/stateManager";
@@ -40,7 +35,7 @@ import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 // Global variable to control the price monitoring loop
 let isPriceMonitoringRunning = true;
-let priceMonitoringIntervalId: NodeJS.Timeout | null = null;
+// let priceMonitoringIntervalId: NodeJS.Timeout | null = null; // Not used, can be removed if no other plans for it
 
 async function priceMonitoringLoop(
   stateManager: StateManager,
@@ -48,13 +43,12 @@ async function priceMonitoringLoop(
   tokenMetadataService: TokenMetadataService
 ) {
   if (!MANAGE_WITH_SLTP) {
-    logInfo(
-      "[PriceMonitor] SL/TP management is disabled. Price monitoring loop will not run."
-    );
     return;
   }
   logInfo(
-    `[PriceMonitor] Starting SL/TP price monitoring loop. Interval: ${PRICE_CHECK_INTERVAL_MS}ms`
+    `[PriceEngine] SL/TP price monitoring active. Interval: ${
+      PRICE_CHECK_INTERVAL_MS / 1000
+    }s`
   );
 
   while (isPriceMonitoringRunning) {
@@ -63,7 +57,7 @@ async function priceMonitoringLoop(
       if (holdings.size === 0) {
       } else {
         logInfo(
-          `[PriceMonitor] Checking prices for ${holdings.size} holdings...`
+          `[PriceEngine] Checking prices for ${holdings.size} SL/TP managed holdings...`
         );
       }
 
@@ -90,7 +84,7 @@ async function priceMonitoringLoop(
 
         if (!currentPriceQuote || !currentPriceQuote.outAmount) {
           logWarn(
-            `[PriceMonitor] Could not get price quote for ${tokenInfo.symbol} (${tokenMint}). Skipping this cycle.`
+            `[PriceEngine] Could not get price quote for ${tokenInfo.symbol} (${tokenMint}) to check SL/TP. Skipping this cycle.`
           );
           continue;
         }
@@ -102,31 +96,28 @@ async function priceMonitoringLoop(
           Number(holding.amountLamports) / 10 ** holding.tokenDecimals;
 
         if (tokensHeld <= 0) {
-          logWarn(
-            `[PriceMonitor] Zero tokens held for ${tokenInfo.symbol}, skipping SL/TP check.`
-          );
           continue;
         }
 
         const currentPricePerTokenSol = currentValueInSol / tokensHeld;
 
-        logDebug(
-          `[PriceMonitor] ${
+        logInfo(
+          `[PriceEngine] ${
             tokenInfo.symbol
-          }: AvgBuyPrice: ${holding.avgPurchasePriceInSol.toFixed(
+          } | Avg Buy: ${holding.avgPurchasePriceInSol.toFixed(
             6
-          )}, CurrPrice: ${currentPricePerTokenSol.toFixed(6)} SOL`
+          )} SOL | Current: ${currentPricePerTokenSol.toFixed(6)} SOL`
         );
 
         const tpPrice =
           holding.avgPurchasePriceInSol * (1 + TAKE_PROFIT_PERCENTAGE / 100);
         if (currentPricePerTokenSol >= tpPrice) {
           logInfo(
-            `[PriceMonitor] TAKE PROFIT triggered for ${
+            `[PriceEngine] 🎉 TAKE PROFIT for ${
               tokenInfo.symbol
             } at ${currentPricePerTokenSol.toFixed(
               6
-            )} SOL (Target: >= ${tpPrice.toFixed(6)} SOL)`
+            )} SOL (Target: >=${tpPrice.toFixed(6)} SOL)`
           );
           await tradeExecutor.executeSlTpSell(
             tokenMint,
@@ -142,11 +133,11 @@ async function priceMonitoringLoop(
           holding.avgPurchasePriceInSol * (1 - STOP_LOSS_PERCENTAGE / 100);
         if (currentPricePerTokenSol <= slPrice) {
           logInfo(
-            `[PriceMonitor] STOP LOSS triggered for ${
+            `[PriceEngine] 🛡️ STOP LOSS for ${
               tokenInfo.symbol
             } at ${currentPricePerTokenSol.toFixed(
               6
-            )} SOL (Target: <= ${slPrice.toFixed(6)} SOL)`
+            )} SOL (Target: <=${slPrice.toFixed(6)} SOL)`
           );
           await tradeExecutor.executeSlTpSell(
             tokenMint,
@@ -159,22 +150,16 @@ async function priceMonitoringLoop(
         }
       }
     } catch (error) {
-      logError("[PriceMonitor] Error in price monitoring loop:", error);
+      logError("[PriceEngine] Error in SL/TP price monitoring loop:", error);
     }
     await sleep(PRICE_CHECK_INTERVAL_MS);
   }
-  logInfo("[PriceMonitor] Price monitoring loop stopped.");
+  logInfo("[PriceEngine] SL/TP Price monitoring loop stopped.");
 }
 
 async function main() {
-  logInfo("=================================");
-  logInfo(" Solana Copy Trading Bot Starting ");
-  logInfo(` Bot Wallet: ${BOT_KEYPAIR.publicKey.toBase58()}`);
-  logInfo("=================================");
-
   const solanaClient = new SolanaClient(connection);
   const metaplex = Metaplex.make(connection).use(guestIdentity());
-  logInfo("Metaplex initialized.");
 
   const tokenMetadataService = new TokenMetadataService(connection, metaplex);
   await tokenMetadataService.initializeTokenMap();
@@ -194,7 +179,6 @@ async function main() {
     JUPITER_SWAP_API_URL,
     stateManager
   );
-  logInfo("TradeExecutor initialized.");
 
   const walletMonitor = new WalletMonitor(
     connection,
@@ -206,7 +190,6 @@ async function main() {
     COMMITMENT_LEVEL.subscription,
     COMMITMENT_LEVEL.fetch
   );
-  logInfo("WalletMonitor initialized.");
 
   walletMonitor.startMonitoring();
 
@@ -217,34 +200,44 @@ async function main() {
       tokenMetadataService
     ).catch((err) => {
       logCritical(
-        "[PriceMonitor] Unhandled critical error in price monitoring loop:",
+        "🚨 CRITICAL: Unhandled error in SL/TP price monitoring loop:",
         err
       );
     });
   }
 
-  logInfo("Bot is now running and monitoring wallets...");
-  logInfo("Press CTRL+C to stop.");
+  logInfo("✅ Bot is now running. Press CTRL+C to stop.");
 
   const shutdown = async () => {
-    logInfo("\nGracefully shutting down...");
+    logInfo("\n🛑 Gracefully shutting down bot...");
     isPriceMonitoringRunning = false;
-    if (priceMonitoringIntervalId) clearInterval(priceMonitoringIntervalId);
 
     await walletMonitor.stopMonitoring();
-    await sleep(
-      PRICE_CHECK_INTERVAL_MS > 2000 ? 2000 : PRICE_CHECK_INTERVAL_MS + 200
+
+    const shutdownPause = Math.min(
+      2000,
+      PRICE_CHECK_INTERVAL_MS > 0 ? PRICE_CHECK_INTERVAL_MS + 200 : 200
     );
+    await sleep(shutdownPause);
+
     stateManager.saveHoldings();
-    logInfo("Shutdown complete. Exiting.");
+    logInfo("👋 Bot shutdown complete. Exiting.");
     process.exit(0);
   };
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  process.on("uncaughtException", (error) => {
+    logCritical("🚨 UNCAUGHT EXCEPTION:", error);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason, promise) => {
+    logCritical("🚨 UNHANDLED PROMISE REJECTION:", reason);
+    process.exit(1);
+  });
 }
 
 main().catch((err) => {
-  logCritical("CRITICAL UNHANDLED ERROR in main function:", err);
-  process.exit(1);
+  logCritical("🚨 CRITICAL ERROR in main function:", err); // User needs to see this
+  process.exit(1); // Ensure exit on critical main error
 });

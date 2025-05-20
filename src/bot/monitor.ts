@@ -13,8 +13,9 @@ import {
   COMMITMENT_LEVEL,
   MONITORED_WALLETS,
   MANAGE_WITH_SLTP,
+  EXPLORER_URL,
 } from "../config";
-import { logError, logInfo, logWarn } from "../utils/logging";
+import { logError, logInfo, logWarn, logCritical } from "../utils/logging";
 import { shortenAddress } from "../utils/helpers";
 import { StateManager } from "./stateManager";
 
@@ -55,19 +56,21 @@ export class WalletMonitor {
     this.fetchCommitment = fetchCommitment;
 
     if (this.monitoredWallets.length === 0) {
-      logWarn("WalletMonitor initialized with zero wallets to monitor.");
+      logWarn("WalletMonitor initialized with zero wallets to monitor."); // Keeping this, it's a valid user warning
     }
   }
 
   startMonitoring(): void {
+    logInfo("-----------------------------------------------------");
     logInfo(
-      `Starting wallet monitoring for ${this.monitoredWallets.length} wallets...`
+      `🚀 Starting wallet monitoring for ${this.monitoredWallets.length} wallet(s).`
     );
     logInfo(
-      `SL/TP Management Mode: ${
-        MANAGE_WITH_SLTP ? "ENABLED" : "DISABLED (Full Copy)"
+      ` SL/TP Management: ${
+        MANAGE_WITH_SLTP ? "✅ ENABLED" : "❌ DISABLED (Full Copy Mode)"
       }`
     );
+    logInfo("-----------------------------------------------------");
     this.subscriptionIds = [];
 
     this.monitoredWallets.forEach(({ address, pubkey }) => {
@@ -77,35 +80,31 @@ export class WalletMonitor {
           (logs: Logs, context) => {
             this.handleLog(logs, pubkey, address).catch((err) => {
               logError(
-                `[${shortenAddress(
+                `[Monitor-${shortenAddress(
                   address
-                )}] Error in async handleLog for signature ${logs.signature}:`,
-                err
+                )}] Error in handleLog for signature ${logs.signature}: ${err}` // Error log is important
               );
             });
           },
           this.subscriptionCommitment
         );
         this.subscriptionIds.push(subscriptionId);
-        logInfo(
-          ` --> Subscribed to logs for wallet: ${address} (Sub ID: ${subscriptionId})`
-        );
+        logInfo(`👂 Listening to logs for wallet: ${address}`);
       } catch (error) {
-        logError(
-          `CRITICAL: Failed to subscribe to logs for wallet ${address}:`,
-          error
+        logCritical(
+          `🚨 CRITICAL: Failed to subscribe to logs for wallet ${address}: ${error}`
         );
       }
     });
 
     if (this.subscriptionIds.length > 0) {
       logInfo(
-        `--- ${this.subscriptionIds.length} wallet log subscriptions initialized ---`
+        `--- Wallet log monitoring active for ${this.subscriptionIds.length} wallet(s) ---`
       );
     } else if (this.monitoredWallets.length > 0) {
-      logError("--- Failed to initialize any wallet log subscriptions ---");
+      logError("--- ⚠️ Failed to initialize ANY wallet log subscriptions! ---");
     } else {
-      logWarn("--- No wallets configured to monitor ---");
+      logWarn("--- No wallets configured to monitor ---"); // User should know if nothing is happening
     }
   }
 
@@ -116,12 +115,16 @@ export class WalletMonitor {
   ): Promise<void> {
     const signature = logs.signature;
     const shortAddr = shortenAddress(walletAddress);
-    logInfo(`[${shortAddr}] Received log for signature: ${signature}`);
+    const explorerTxUrl = `${EXPLORER_URL}/tx/${signature}`;
 
     if (logs.err) {
-      logInfo(`[${shortAddr}] Skipping tx ${signature}: Log contains error.`);
+      logInfo(
+        `[Monitor-${shortAddr}] Skipping tx ${signature} (Log contains error): ${explorerTxUrl}`
+      );
       return;
     }
+    // User sees this only if it's not an error and being processed further
+    logInfo(`[Monitor-${shortAddr}] Processing tx: ${signature}`);
 
     try {
       const transaction = await this.solanaClient.getParsedTransaction(
@@ -131,14 +134,14 @@ export class WalletMonitor {
 
       if (!transaction) {
         logWarn(
-          `[${shortAddr}] Could not fetch transaction details for ${signature}. It might be dropped or not yet finalized at ${this.fetchCommitment} commitment.`
+          `[Monitor-${shortAddr}] Could not fetch transaction details for ${signature}. It might be dropped or not yet finalized at ${this.fetchCommitment} commitment.`
         );
         return;
       }
 
       if (isDexInteraction(transaction)) {
         logInfo(
-          `[${shortAddr}] DEX interaction detected in tx ${signature}. Analyzing trade...`
+          `[Monitor-${shortAddr}] DEX interaction detected in ${signature}. Analyzing...`
         );
 
         const detectedTrade = await analyzeTrade(
@@ -160,46 +163,45 @@ export class WalletMonitor {
               holding.tokenDecimals !== undefined
             ) {
               logInfo(
-                `[${shortAddr}] Monitored wallet sold ${detectedTrade.tokenInfo.symbol}. Bot holds and manages this with SL/TP. Ignoring copy-sell for tx ${signature}.`
+                `[Monitor-${shortAddr}] Monitored wallet sold ${detectedTrade.tokenInfo.symbol}. Bot holds and manages this with SL/TP. Ignoring copy-sell for tx ${signature}.`
               );
               return; // Do not process this copy-sell
             }
           }
 
           // If it's a buy, or a sell in full-copy mode, or a sell of a non-SL/TP managed token
-          logInfo(
-            `[${shortAddr}] Trade detected for ${detectedTrade.tokenInfo.symbol} (Type: ${detectedTrade.type}) in tx ${signature}. Passing to executor.`
-          );
+          // TradeExecutor will log the specifics of the action it takes, so no redundant log here like "Passing to executor"
           await this.tradeExecutor.processTrade(detectedTrade);
         } else {
           logInfo(
-            `[${shortAddr}] DEX interaction in ${signature} analyzed, but no copyable trade pattern found.`
+            `[Monitor-${shortAddr}] DEX interaction in ${signature} analyzed, but no copyable trade pattern found for the bot.`
           );
         }
       } else {
         logInfo(
-          `[${shortAddr}] Tx ${signature} is not a DEX interaction. Skipping detailed analysis.`
+          `[Monitor-${shortAddr}] Tx ${signature} is not a DEX interaction. Skipping detailed analysis.`
         );
       }
     } catch (err) {
-      logError(`[${shortAddr}] Error processing signature ${signature}:`, err);
+      logError(
+        `[Monitor-${shortAddr}] Error processing signature ${signature}: ${err}`
+      );
     }
   }
 
   async stopMonitoring(): Promise<void> {
-    logInfo("Stopping wallet monitoring...");
+    logInfo("🔌 Stopping wallet monitoring...");
     if (this.subscriptionIds.length === 0) {
       logInfo("No active subscriptions to remove.");
       return;
     }
     const promises = this.subscriptionIds.map((id) => {
-      logInfo(`Removing subscription ID: ${id}`);
       return this.connection
         .removeOnLogsListener(id)
-        .catch((err) => logError(`Error removing subscription ${id}:`, err));
+        .catch((err) => logError(`Error removing subscription ${id}: ${err}`)); // User needs to know if removal fails
     });
     await Promise.all(promises);
     this.subscriptionIds = [];
-    logInfo("All log subscriptions removed.");
+    logInfo("✅ All wallet log subscriptions removed.");
   }
 }

@@ -1,4 +1,3 @@
-// src/bot/stateManager.ts
 import * as fs from "fs";
 import * as path from "path";
 import { logInfo, logWarn, logError } from "../utils/logging";
@@ -39,20 +38,22 @@ export class StateManager {
     if (dataDir !== "." && !fs.existsSync(dataDir)) {
       try {
         fs.mkdirSync(dataDir, { recursive: true });
-        logInfo(`Created data directory: ${dataDir}`);
+        logInfo(`[StateManager] Created data directory: ${dataDir}`);
       } catch (err) {
-        logError(`Failed to create data directory ${dataDir}:`, err);
-        dataDir = ".";
+        logError(
+          `[StateManager] Failed to create data directory ${dataDir}, using current directory:`,
+          err
+        );
+        dataDir = "."; // Fallback to current directory
       }
     }
     this.stateFilePath = path.join(dataDir, filename);
-    logInfo(`State file path set to: ${this.stateFilePath}`);
   }
 
   loadHoldings(): void {
     if (!fs.existsSync(this.stateFilePath)) {
       logInfo(
-        `State file not found at ${this.stateFilePath}. Starting with empty holdings.`
+        `[StateManager] State file not found at ${this.stateFilePath}. Starting with empty holdings.`
       );
       this.holdings = new Map<string, BotHolding>();
       return;
@@ -60,9 +61,10 @@ export class StateManager {
 
     try {
       const fileContent = fs.readFileSync(this.stateFilePath, "utf-8");
-      if (!fileContent) {
+      if (!fileContent.trim()) {
+        // Check if file is empty or only whitespace
         logWarn(
-          `State file ${this.stateFilePath} is empty. Starting with empty holdings.`
+          `[StateManager] State file ${this.stateFilePath} is empty. Starting with empty holdings.`
         );
         this.holdings = new Map<string, BotHolding>();
         return;
@@ -70,11 +72,24 @@ export class StateManager {
 
       const parsedData: HoldingsJson = JSON.parse(fileContent);
       const loadedHoldings = new Map<string, BotHolding>();
+      let invalidCount = 0;
 
       for (const tokenMint in parsedData) {
         if (Object.prototype.hasOwnProperty.call(parsedData, tokenMint)) {
           const holdingJson = parsedData[tokenMint];
           try {
+            // Basic validation for essential fields
+            if (
+              !holdingJson.amountLamports ||
+              !holdingJson.buyTxSignature ||
+              !holdingJson.monitoredWallet
+            ) {
+              logWarn(
+                `[StateManager] Skipping holding for mint ${tokenMint} due to missing essential fields.`
+              );
+              invalidCount++;
+              continue;
+            }
             loadedHoldings.set(tokenMint, {
               amountLamports: BigInt(holdingJson.amountLamports),
               buyTxSignature: holdingJson.buyTxSignature,
@@ -87,22 +102,25 @@ export class StateManager {
             });
           } catch (convertErr) {
             logWarn(
-              `Skipping invalid holding data for mint ${tokenMint} during load:`,
-              convertErr
+              `[StateManager] Skipping invalid holding data for mint ${tokenMint} during load: ${
+                convertErr instanceof Error ? convertErr.message : convertErr
+              }`
             );
+            invalidCount++;
           }
         }
       }
       this.holdings = loadedHoldings;
-      logInfo(
-        `Successfully loaded ${this.holdings.size} holdings from ${this.stateFilePath}`
-      );
+      if (invalidCount > 0) {
+        logWarn(
+          `[StateManager] Skipped ${invalidCount} invalid holding entries during load.`
+        );
+      }
     } catch (error: any) {
       logError(
-        `Error loading or parsing state file ${this.stateFilePath}:`,
-        error.message
+        `[StateManager] Error loading or parsing state file ${this.stateFilePath}: ${error.message}`
       );
-      logWarn("Starting with empty holdings due to load error.");
+      logWarn("[StateManager] Starting with empty holdings due to load error.");
       this.holdings = new Map<string, BotHolding>();
     }
   }
@@ -122,10 +140,12 @@ export class StateManager {
       const jsonString = JSON.stringify(holdingsToSave, null, 2);
       fs.writeFileSync(this.stateFilePath, jsonString, "utf-8");
       logInfo(
-        `Successfully saved ${this.holdings.size} holdings to ${this.stateFilePath}`
+        `[StateManager] Successfully saved ${this.holdings.size} holdings to ${this.stateFilePath}`
       );
     } catch (error: any) {
-      logError(`Error saving state file ${this.stateFilePath}:`, error.message);
+      logError(
+        `[StateManager] Error saving state file ${this.stateFilePath}: ${error.message}`
+      );
     }
   }
 
@@ -154,6 +174,7 @@ export class StateManager {
     manageWithSLTP: boolean // Pass the global config flag
   ): void {
     const existingHolding = this.holdings.get(tokenMint);
+    let actionMessage = "";
 
     if (existingHolding) {
       existingHolding.amountLamports += amountBoughtLamports;
@@ -179,21 +200,17 @@ export class StateManager {
         } else {
           existingHolding.avgPurchasePriceInSol = 0;
         }
-        logInfo(
-          `Updated holding for ${tokenMint}. New amount: ${
-            existingHolding.amountLamports
-          }, Avg Price: ${
-            existingHolding.avgPurchasePriceInSol?.toFixed(6) || "N/A"
-          } SOL`
-        );
+        actionMessage = `Updated holding for ${tokenMint}. New amount: ${
+          existingHolding.amountLamports
+        }, Avg Price: ${
+          existingHolding.avgPurchasePriceInSol?.toFixed(6) || "N/A"
+        } SOL`;
       } else {
         // If not managing with SLTP, clear SLTP specific fields or don't calculate them
         existingHolding.totalSolInvestedLamports = undefined;
         existingHolding.avgPurchasePriceInSol = undefined;
         existingHolding.tokenDecimals = undefined; // Or keep if useful for other purposes
-        logInfo(
-          `Updated holding for ${tokenMint} (no SLTP). New amount: ${existingHolding.amountLamports}`
-        );
+        actionMessage = `Updated holding for ${tokenMint} (SL/TP disabled). New amount: ${existingHolding.amountLamports}`;
       }
     } else {
       // Add new holding
@@ -214,15 +231,11 @@ export class StateManager {
         } else {
           newHolding.avgPurchasePriceInSol = 0;
         }
-        logInfo(
-          `Added new SLTP-managed holding for ${tokenMint}. Amount: ${amountBoughtLamports}, Avg Price: ${
-            newHolding.avgPurchasePriceInSol?.toFixed(6) || "N/A"
-          } SOL`
-        );
+        actionMessage = `Added new SL/TP-managed holding for ${tokenMint}. Amount: ${amountBoughtLamports}, Avg Price: ${
+          newHolding.avgPurchasePriceInSol?.toFixed(6) || "N/A"
+        } SOL`;
       } else {
-        logInfo(
-          `Added new holding for ${tokenMint} (no SLTP). Amount: ${amountBoughtLamports}`
-        );
+        actionMessage = `Added new holding for ${tokenMint} (SL/TP disabled). Amount: ${amountBoughtLamports}`;
       }
       this.holdings.set(tokenMint, newHolding);
     }
@@ -232,11 +245,10 @@ export class StateManager {
   removeHolding(tokenMint: string): void {
     if (this.holdings.has(tokenMint)) {
       this.holdings.delete(tokenMint);
-      logInfo(`Removed holding for ${tokenMint}.`);
       this.saveHoldings();
     } else {
       logWarn(
-        `Attempted to remove holding for ${tokenMint}, but it was not found.`
+        `[StateManager] Attempted to remove holding for ${tokenMint}, but it was not found.`
       );
     }
   }
