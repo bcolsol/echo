@@ -1,4 +1,6 @@
-import dotenv from "dotenv";
+// src/config/index.ts
+import fs from "fs";
+import path from "path";
 import {
   Keypair,
   LAMPORTS_PER_SOL,
@@ -6,51 +8,96 @@ import {
   Commitment,
 } from "@solana/web3.js";
 import bs58 from "bs58";
-import { logCritical, logError, logInfo, logWarn } from "../utils/logging"; // Use new loggers
+import { logCritical, logError, logInfo, logWarn } from "../utils/logging";
 
-// Load environment variables from .env file
-dotenv.config();
+const CONFIG_FILE_PATH = path.join(process.cwd(), "config.json");
+
+interface ConfigData {
+  RPC_ENDPOINT: string;
+  EXPLORER_URL?: string;
+  BOT_PRIVATE_KEY: string;
+  COPY_TRADE_AMOUNT_SOL: number;
+  SLIPPAGE_BPS: number;
+  EXECUTE_TRADES: boolean;
+  MANAGE_WITH_SLTP: boolean;
+  TAKE_PROFIT_PERCENTAGE?: number;
+  STOP_LOSS_PERCENTAGE?: number;
+  PRICE_CHECK_INTERVAL_MS?: number;
+  MONITORED_WALLETS_RAW: string[];
+}
+
+let configData: ConfigData;
+
+if (!fs.existsSync(CONFIG_FILE_PATH)) {
+  logCritical(`Configuration file not found at ${CONFIG_FILE_PATH}.`);
+  logCritical(`Please run 'npm run setup' to generate the configuration file.`);
+  process.exit(1);
+}
+
+try {
+  const fileContent = fs.readFileSync(CONFIG_FILE_PATH, "utf-8");
+  configData = JSON.parse(fileContent) as ConfigData;
+} catch (error: any) {
+  logCritical(
+    `Failed to parse configuration from ${CONFIG_FILE_PATH}: ${error.message}`
+  );
+  logCritical(
+    "Please ensure config.json is valid or run 'npm run setup' again."
+  );
+  process.exit(1);
+}
 
 // --- Essential RPC & URLs ---
-const rpcEndpointEnv = process.env.RPC_ENDPOINT;
-const explorerUrlEnv = process.env.EXPLORER_URL ?? "https://solscan.io"; // Default if not set
+const rpcEndpointEnv = configData.RPC_ENDPOINT;
+const explorerUrlEnv = configData.EXPLORER_URL ?? "https://solscan.io";
 
 // --- Bot Wallet Configuration ---
-const botPrivateKeyString = process.env.BOT_PRIVATE_KEY;
+const botPrivateKeyString = configData.BOT_PRIVATE_KEY;
 
 // --- Trading Parameters ---
-const copyTradeAmountSOLString = process.env.COPY_TRADE_AMOUNT_SOL;
-const slippageBpsString = process.env.SLIPPAGE_BPS;
-const executeTradesString =
-  process.env.EXECUTE_TRADES?.toLowerCase() ?? "false";
-// const tradeAmountSolString = copyTradeAmountSOLString; // Already have copyTradeAmountSOLString
+const copyTradeAmountSOLString = configData.COPY_TRADE_AMOUNT_SOL?.toString();
+const slippageBpsString = configData.SLIPPAGE_BPS?.toString();
+const executeTradesString = configData.EXECUTE_TRADES?.toString() ?? "false";
 
 // --- SL/TP Configuration ---
-const manageWithSLTPString =
-  process.env.MANAGE_WITH_SLTP?.toLowerCase() ?? "false";
-const takeProfitPercentageString = process.env.TAKE_PROFIT_PERCENTAGE;
-const stopLossPercentageString = process.env.STOP_LOSS_PERCENTAGE;
-const priceCheckIntervalMsString = process.env.PRICE_CHECK_INTERVAL_MS;
+const manageWithSLTPString = configData.MANAGE_WITH_SLTP?.toString() ?? "false";
+const takeProfitPercentageString =
+  configData.TAKE_PROFIT_PERCENTAGE?.toString();
+const stopLossPercentageString = configData.STOP_LOSS_PERCENTAGE?.toString();
+const priceCheckIntervalMsString =
+  configData.PRICE_CHECK_INTERVAL_MS?.toString();
+
+// --- Monitored Wallets from config.json ---
+const monitoredWalletsRaw: string[] = configData.MONITORED_WALLETS_RAW || [];
 
 // --- Validation ---
 const missingVars: string[] = [];
 if (!rpcEndpointEnv) missingVars.push("RPC_ENDPOINT");
 if (!botPrivateKeyString) missingVars.push("BOT_PRIVATE_KEY");
-if (!copyTradeAmountSOLString) missingVars.push("COPY_TRADE_AMOUNT_SOL");
-if (!slippageBpsString) missingVars.push("SLIPPAGE_BPS");
-// if (!tradeAmountSolString) missingVars.push("TRADE_AMOUNT_SOL"); // Covered by copyTradeAmountSOLString
+if (copyTradeAmountSOLString === undefined)
+  missingVars.push("COPY_TRADE_AMOUNT_SOL");
+if (slippageBpsString === undefined) missingVars.push("SLIPPAGE_BPS");
 
-// Validate SL/TP vars only if MANAGE_WITH_SLTP is true
 if (manageWithSLTPString === "true") {
-  if (!takeProfitPercentageString) missingVars.push("TAKE_PROFIT_PERCENTAGE");
-  if (!stopLossPercentageString) missingVars.push("STOP_LOSS_PERCENTAGE");
-  if (!priceCheckIntervalMsString) missingVars.push("PRICE_CHECK_INTERVAL_MS");
+  if (takeProfitPercentageString === undefined)
+    missingVars.push("TAKE_PROFIT_PERCENTAGE");
+  if (stopLossPercentageString === undefined)
+    missingVars.push("STOP_LOSS_PERCENTAGE");
+  if (priceCheckIntervalMsString === undefined)
+    missingVars.push("PRICE_CHECK_INTERVAL_MS");
+}
+
+if (monitoredWalletsRaw.length === 0) {
+  missingVars.push("MONITORED_WALLETS_RAW (must not be empty in config.json)");
 }
 
 if (missingVars.length > 0) {
   logCritical(
-    `Error: Missing required environment variables: ${missingVars.join(", ")}`
+    `Error: Missing or invalid required fields in config.json: ${missingVars.join(
+      ", "
+    )}.`
   );
+  logCritical("Please run 'npm run setup' or fix config.json.");
   process.exit(1);
 }
 
@@ -69,7 +116,6 @@ export const COMMITMENT_LEVEL: {
   confirmation: "confirmed",
 };
 
-// Bot Wallet
 let botKeypairInstance: Keypair;
 try {
   const privateKeyBytes = bs58.decode(botPrivateKeyString!);
@@ -78,7 +124,9 @@ try {
     `Bot wallet loaded successfully: ${botKeypairInstance.publicKey.toBase58()}`
   );
 } catch (error) {
-  logCritical(`Failed to load bot keypair from BOT_PRIVATE_KEY: ${error}`);
+  logCritical(
+    `Failed to load bot keypair from BOT_PRIVATE_KEY in config.json: ${error}`
+  );
   process.exit(1);
 }
 export const BOT_KEYPAIR: Keypair = botKeypairInstance;
@@ -90,20 +138,19 @@ export const EXECUTE_TRADES = executeTradesString === "true";
 
 if (isNaN(COPY_TRADE_AMOUNT_SOL) || COPY_TRADE_AMOUNT_SOL <= 0) {
   logCritical(
-    "Invalid COPY_TRADE_AMOUNT_SOL in .env file. Must be a positive number."
+    "Invalid COPY_TRADE_AMOUNT_SOL in config.json. Must be a positive number."
   );
   process.exit(1);
 }
 
 if (isNaN(SLIPPAGE_BPS) || SLIPPAGE_BPS < 0) {
   logCritical(
-    "Invalid SLIPPAGE_BPS in .env file. Must be a non-negative integer."
+    "Invalid SLIPPAGE_BPS in config.json. Must be a non-negative integer."
   );
   process.exit(1);
 }
 
 export const TRADE_AMOUNT_LAMPORTS = Math.floor(
-  // This remains the default for copy buys
   COPY_TRADE_AMOUNT_SOL * LAMPORTS_PER_SOL
 );
 
@@ -119,7 +166,7 @@ logInfo(`Slippage Tolerance: ${SLIPPAGE_BPS} BPS`);
 export const MANAGE_WITH_SLTP = manageWithSLTPString === "true";
 export let TAKE_PROFIT_PERCENTAGE = 0;
 export let STOP_LOSS_PERCENTAGE = 0;
-export let PRICE_CHECK_INTERVAL_MS = 60000; // Default to 1 minute
+export let PRICE_CHECK_INTERVAL_MS = 60000;
 
 if (MANAGE_WITH_SLTP) {
   TAKE_PROFIT_PERCENTAGE = parseFloat(takeProfitPercentageString!);
@@ -127,15 +174,21 @@ if (MANAGE_WITH_SLTP) {
   PRICE_CHECK_INTERVAL_MS = parseInt(priceCheckIntervalMsString!, 10);
 
   if (isNaN(TAKE_PROFIT_PERCENTAGE) || TAKE_PROFIT_PERCENTAGE <= 0) {
-    logCritical("Invalid TAKE_PROFIT_PERCENTAGE. Must be a positive number.");
+    logCritical(
+      "Invalid TAKE_PROFIT_PERCENTAGE in config.json. Must be a positive number."
+    );
     process.exit(1);
   }
   if (isNaN(STOP_LOSS_PERCENTAGE) || STOP_LOSS_PERCENTAGE <= 0) {
-    logCritical("Invalid STOP_LOSS_PERCENTAGE. Must be a positive number.");
+    logCritical(
+      "Invalid STOP_LOSS_PERCENTAGE in config.json. Must be a positive number."
+    );
     process.exit(1);
   }
   if (isNaN(PRICE_CHECK_INTERVAL_MS) || PRICE_CHECK_INTERVAL_MS <= 0) {
-    logCritical("Invalid PRICE_CHECK_INTERVAL_MS. Must be a positive integer.");
+    logCritical(
+      "Invalid PRICE_CHECK_INTERVAL_MS in config.json. Must be a positive integer."
+    );
     process.exit(1);
   }
   logInfo(`Stop-Loss/Take-Profit Management: ENABLED`);
@@ -147,26 +200,31 @@ if (MANAGE_WITH_SLTP) {
 }
 
 // --- Monitored Wallets ---
-const monitoredWalletsRaw: string[] = [
-  "7xBiwdgBKaE7r4HMZ42qssvZ8yP936vuLNDrkvBAaAkV",
-];
-
 export const MONITORED_WALLETS: { address: string; pubkey: PublicKey }[] = [];
 for (const addr of monitoredWalletsRaw) {
   try {
     MONITORED_WALLETS.push({ address: addr, pubkey: new PublicKey(addr) });
   } catch (e) {
-    logWarn(`Invalid address found in monitored list: ${addr}. Skipping.`);
+    logWarn(
+      `Invalid address found in monitored list in config.json: ${addr}. Skipping.`
+    );
   }
 }
 
-if (MONITORED_WALLETS.length === 0) {
+if (MONITORED_WALLETS.length === 0 && monitoredWalletsRaw.length > 0) {
+  // Check if some were provided but all were invalid
   logError(
-    "Warning: MONITORED_WALLETS list is empty or contains only invalid addresses. The bot won't copy any trades."
+    "MONITORED_WALLETS_RAW in config.json contains only invalid addresses. The bot won't copy any trades."
+  );
+  process.exit(1);
+} else if (monitoredWalletsRaw.length === 0) {
+  // This should have been caught by missingVars earlier
+  logError(
+    "MONITORED_WALLETS_RAW is empty in config.json. Please add wallets to monitor via 'npm run setup'."
   );
   process.exit(1);
 } else {
-  logInfo(`Monitoring ${MONITORED_WALLETS.length} wallets.`);
+  logInfo(`Monitoring ${MONITORED_WALLETS.length} wallets from config.json.`);
 }
 
 // --- DEX & Token Constants ---
@@ -176,6 +234,9 @@ export const DEX_PROGRAM_IDS: Set<string> = new Set([
   "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY", // Phoenix Trade
   "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1", // Raydium AMM V4 (CPMM)
   "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", // Raydium AMM V4 (CLMM)
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", // RAydium concetrated liquiduty
+  "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", //Meteora
+  "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB", //Meteora pools program
 ]);
 
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
@@ -191,7 +252,7 @@ export const JUPITER_STRICT_TOKEN_LIST_URL = "https://token.jup.ag/strict";
 export const JUPITER_QUOTE_API_URL = "https://quote-api.jup.ag/v6/quote";
 export const JUPITER_SWAP_API_URL = "https://quote-api.jup.ag/v6/swap";
 
-logInfo("Configuration loaded successfully.");
+logInfo("Configuration loaded successfully from config.json.");
 
 if (typeof window === "undefined") {
   try {

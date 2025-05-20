@@ -10,8 +10,8 @@ import {
   logWarn,
   logDebug,
   logError,
-} from "./utils/logging"; // logWarn added
-import { sleep } from "./utils/helpers"; // Import sleep
+} from "./utils/logging";
+import { sleep } from "./utils/helpers";
 import {
   BOT_KEYPAIR,
   TRADE_AMOUNT_LAMPORTS,
@@ -23,14 +23,15 @@ import {
   MONITORED_WALLETS,
   COMMITMENT_LEVEL,
   COPY_TRADE_AMOUNT_SOL,
-  MANAGE_WITH_SLTP, // Import new config
+  MANAGE_WITH_SLTP,
   TAKE_PROFIT_PERCENTAGE,
   STOP_LOSS_PERCENTAGE,
   PRICE_CHECK_INTERVAL_MS,
-  WSOL_MINT, // For price checking against SOL
+  WSOL_MINT,
 } from "./config";
-import { StateManager } from "./bot/stateManager"; // Import BotHolding
-import { getJupiterQuote } from "./jupiter/api"; // For price checking
+
+import { StateManager } from "./bot/stateManager";
+import { getJupiterQuote } from "./jupiter/api";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 /**
@@ -60,7 +61,6 @@ async function priceMonitoringLoop(
     try {
       const holdings = stateManager.getAllHoldings();
       if (holdings.size === 0) {
-        // logDebug("[PriceMonitor] No holdings to monitor."); // Optional: too verbose for frequent checks
       } else {
         logInfo(
           `[PriceMonitor] Checking prices for ${holdings.size} holdings...`
@@ -68,27 +68,24 @@ async function priceMonitoringLoop(
       }
 
       for (const [tokenMint, holding] of holdings.entries()) {
-        if (!isPriceMonitoringRunning) break; // Exit loop if shutdown initiated
+        if (!isPriceMonitoringRunning) break;
 
         if (
           holding.avgPurchasePriceInSol === undefined ||
           holding.tokenDecimals === undefined ||
           holding.amountLamports <= 0n
         ) {
-          // logDebug(`[PriceMonitor] Skipping ${tokenMint}: missing purchase price, decimals, or zero amount.`);
           continue;
         }
 
-        const tokenInfo = await tokenMetadataService.getTokenInfo(tokenMint); // Get fresh decimals and symbol
+        const tokenInfo = await tokenMetadataService.getTokenInfo(tokenMint);
 
-        // 1. Get current price by quoting Token -> WSOL
-        // We quote selling the entire holding amount to see its current SOL value
         const currentPriceQuote = await getJupiterQuote(
           JUPITER_QUOTE_API_URL,
           tokenMint,
           WSOL_MINT,
           holding.amountLamports.toString(),
-          SLIPPAGE_BPS // Use configured slippage, though for price check it's less critical
+          SLIPPAGE_BPS
         );
 
         if (!currentPriceQuote || !currentPriceQuote.outAmount) {
@@ -105,7 +102,6 @@ async function priceMonitoringLoop(
           Number(holding.amountLamports) / 10 ** holding.tokenDecimals;
 
         if (tokensHeld <= 0) {
-          // Should not happen if amountLamports > 0n check passed
           logWarn(
             `[PriceMonitor] Zero tokens held for ${tokenInfo.symbol}, skipping SL/TP check.`
           );
@@ -122,7 +118,6 @@ async function priceMonitoringLoop(
           )}, CurrPrice: ${currentPricePerTokenSol.toFixed(6)} SOL`
         );
 
-        // 2. Check TP condition
         const tpPrice =
           holding.avgPurchasePriceInSol * (1 + TAKE_PROFIT_PERCENTAGE / 100);
         if (currentPricePerTokenSol >= tpPrice) {
@@ -139,13 +134,10 @@ async function priceMonitoringLoop(
             tokenInfo,
             "TP"
           );
-          // If sell is successful, holding is removed by executor, loop will skip it next time.
-          // Add a small delay to avoid multiple triggers if removal is slow, or break from inner loop for this token.
-          await sleep(1000); // Small pause after a sell attempt
-          continue; // Move to next holding, as this one was sold (or attempt was made)
+          await sleep(1000);
+          continue;
         }
 
-        // 3. Check SL condition
         const slPrice =
           holding.avgPurchasePriceInSol * (1 - STOP_LOSS_PERCENTAGE / 100);
         if (currentPricePerTokenSol <= slPrice) {
@@ -162,8 +154,8 @@ async function priceMonitoringLoop(
             tokenInfo,
             "SL"
           );
-          await sleep(1000); // Small pause
-          continue; // Move to next holding
+          await sleep(1000);
+          continue;
         }
       }
     } catch (error) {
@@ -204,13 +196,13 @@ async function main() {
   );
   logInfo("TradeExecutor initialized.");
 
-  const walletMonitor = new WalletMonitor( // Pass stateManager here
+  const walletMonitor = new WalletMonitor(
     connection,
     solanaClient,
     tokenMetadataService,
     tradeExecutor,
-    stateManager, // Pass stateManager instance
-    MONITORED_WALLETS, // Defaults from config
+    stateManager,
+    MONITORED_WALLETS,
     COMMITMENT_LEVEL.subscription,
     COMMITMENT_LEVEL.fetch
   );
@@ -218,9 +210,7 @@ async function main() {
 
   walletMonitor.startMonitoring();
 
-  // Start the price monitoring loop if SL/TP is enabled
   if (MANAGE_WITH_SLTP) {
-    // Run in background, don't await it here directly unless you want main to block
     priceMonitoringLoop(
       stateManager,
       tradeExecutor,
@@ -238,15 +228,14 @@ async function main() {
 
   const shutdown = async () => {
     logInfo("\nGracefully shutting down...");
-    isPriceMonitoringRunning = false; // Signal the price monitoring loop to stop
+    isPriceMonitoringRunning = false;
     if (priceMonitoringIntervalId) clearInterval(priceMonitoringIntervalId);
 
     await walletMonitor.stopMonitoring();
-    // Add a small delay to allow the price monitoring loop to finish its current iteration
     await sleep(
       PRICE_CHECK_INTERVAL_MS > 2000 ? 2000 : PRICE_CHECK_INTERVAL_MS + 200
-    ); // Wait a bit
-    stateManager.saveHoldings(); // Save holdings after loops are requested to stop
+    );
+    stateManager.saveHoldings();
     logInfo("Shutdown complete. Exiting.");
     process.exit(0);
   };
