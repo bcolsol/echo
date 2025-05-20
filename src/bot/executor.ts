@@ -6,14 +6,14 @@ import {
 } from "@solana/web3.js";
 import { SolanaClient } from "../solana/client";
 import { getJupiterQuote, getJupiterSwap } from "../jupiter/api";
-import { DetectedTrade, TokenInfo } from "../types"; // Added JupiterQuoteResponse
+import { DetectedTrade, TokenInfo } from "../types";
 import {
   WSOL_MINT,
   MANAGE_WITH_SLTP,
   TAKE_PROFIT_PERCENTAGE,
   STOP_LOSS_PERCENTAGE,
 } from "../config";
-import { logError, logInfo, logWarn, logDebug } from "../utils/logging";
+import { logError, logInfo, logWarn } from "../utils/logging";
 import { shortenAddress } from "../utils/helpers";
 import { StateManager, BotHolding } from "./stateManager";
 
@@ -60,14 +60,6 @@ export class TradeExecutor {
     this.jupiterQuoteApiUrl = jupiterQuoteApiUrl;
     this.jupiterSwapApiUrl = jupiterSwapApiUrl;
     this.stateManager = stateManager;
-
-    // Log the SL/TP mode being used by the executor
-    logInfo(`[TradeExecutor] MANAGE_WITH_SLTP: ${MANAGE_WITH_SLTP}`);
-    if (MANAGE_WITH_SLTP) {
-      logInfo(
-        `[TradeExecutor] TP: ${TAKE_PROFIT_PERCENTAGE}%, SL: ${STOP_LOSS_PERCENTAGE}%`
-      );
-    }
   }
 
   async processTrade(detectedTrade: DetectedTrade): Promise<void> {
@@ -95,7 +87,7 @@ export class TradeExecutor {
           holding?.tokenDecimals !== undefined
         ) {
           logInfo(
-            `[${botWalletShort}] Sell detected for ${detectedTrade.tokenInfo.symbol} by monitored wallet, but bot is managing this token with SL/TP. Ignoring copy-sell.`
+            `[Bot-${botWalletShort}] Monitored wallet sold ${detectedTrade.tokenInfo.symbol}. Bot is managing this token with SL/TP. Ignoring copy-sell.`
           );
           return;
         }
@@ -116,27 +108,25 @@ export class TradeExecutor {
       tradeDetails;
 
     logInfo(
-      `\n--- ✅ BUY Detected [${shortenAddress(
-        monitoredWallet.toBase58()
-      )}] ---`
+      `\n[Bot-${botWalletShort}] ---> BUY DETECTED for ${
+        tokenInfo.symbol
+      } from ${shortenAddress(monitoredWallet.toBase58())} <---`
     );
-    logInfo(` Original Tx: ${originalTxSignature}`);
+    logInfo(` Original Tx: ${this.explorerUrl}/tx/${originalTxSignature}`);
     logInfo(
-      ` Swapped: ~${tradeDetails.currencyAmount.toFixed(4)} ${
+      ` Detected Swap: ~${tradeDetails.currencyAmount.toFixed(4)} ${
         tradeDetails.currencySymbol
       } -> ${tradeDetails.tokenAmount.toFixed(tokenInfo.decimals)} ${
         tokenInfo.symbol
       } (${tokenInfo.name})`
     );
-    logInfo(` Token Mint: ${tokenMint}`);
-    logInfo(`----------------------`);
+    // logInfo(` Token Mint: ${tokenMint}`);
+
+    const tradeModeStatus = this.executeTrades
+      ? "REAL EXECUTION"
+      : "SIMULATION ONLY";
     logInfo(
-      `[${botWalletShort}] Preparing copy trade: Buy ${tokenInfo.symbol} (${tokenMint})`
-    );
-    logInfo(
-      `          Mode: ${
-        this.executeTrades ? "REAL EXECUTION" : "SIMULATION ONLY"
-      }`
+      `[Bot-${botWalletShort}] Preparing copy trade (${tradeModeStatus}): Buy ${tokenInfo.symbol} for ${this.tradeAmountSol} SOL.`
     );
 
     const quoteResponse = await getJupiterQuote(
@@ -149,7 +139,7 @@ export class TradeExecutor {
 
     if (!quoteResponse) {
       logError(
-        `[${botWalletShort}] CRITICAL: Failed to get Jupiter quote for BUYING ${tokenInfo.symbol}. Aborting copy trade.`
+        `[Bot-${botWalletShort}] CRITICAL: Failed to get Jupiter quote for BUYING ${tokenInfo.symbol}. Aborting copy trade.`
       );
       return;
     }
@@ -158,7 +148,7 @@ export class TradeExecutor {
     const botSolCostLamports = BigInt(quoteResponse.inAmount); // Actual SOL cost for the quoted amount
 
     logInfo(
-      `[${botWalletShort}] Received Jupiter quote: Spend ~${(
+      `[Bot-${botWalletShort}] Jupiter Quote: Spend ~${(
         Number(botSolCostLamports) / LAMPORTS_PER_SOL
       ).toFixed(6)} SOL to get ~${(
         Number(botExpectedTokensLamports) /
@@ -174,11 +164,10 @@ export class TradeExecutor {
 
     if (!swapResponse || !swapResponse.swapTransaction) {
       logError(
-        `[${botWalletShort}] CRITICAL: Failed to get Jupiter swap instructions for BUYING ${tokenInfo.symbol}. Aborting copy trade.`
+        `[Bot-${botWalletShort}] CRITICAL: Failed to get Jupiter swap instructions for BUYING ${tokenInfo.symbol}. Aborting copy trade.`
       );
       return;
     }
-    logInfo(`[${botWalletShort}] Received Jupiter swap instructions for BUY.`);
 
     let versionedTx: VersionedTransaction;
     try {
@@ -188,11 +177,11 @@ export class TradeExecutor {
       );
       versionedTx = VersionedTransaction.deserialize(swapTransactionBuf);
       versionedTx.sign([this.botKeypair]);
-      logDebug(`[${botWalletShort}] BUY Swap transaction signed by bot.`);
     } catch (error: any) {
       logError(
-        `[${botWalletShort}] CRITICAL: Error processing BUY transaction object for ${tokenInfo.symbol}:`,
-        error.message ?? error
+        `[Bot-${botWalletShort}] CRITICAL: Error processing BUY transaction object for ${
+          tokenInfo.symbol
+        }: ${error.message ?? error}`
       );
       return;
     }
@@ -212,30 +201,42 @@ export class TradeExecutor {
         this.tradeAmountSol // Logged amount for simulation
       );
     }
-    logInfo(
-      `[${botWalletShort}] BUY execution/simulation result: ${JSON.stringify(
-        buySuccessResult
-      )}`
-    );
+    // logInfo( // Redundant, specific outcomes logged below
+    //   `[Bot-${botWalletShort}] BUY execution/simulation result: ${JSON.stringify(
+    //     buySuccessResult
+    //   )}`
+    // );
 
-    if (buySuccessResult?.success && this.executeTrades) {
-      const signature =
-        (buySuccessResult as ExecuteResult).signature ?? "simulation_error";
-      this.stateManager.addOrUpdateHolding(
-        tokenMint,
-        botExpectedTokensLamports, // Actual amount of tokens the bot expects to receive
-        botSolCostLamports, // Actual amount of SOL the bot expects to spend
-        signature,
-        monitoredWallet.toBase58(),
-        tokenInfo.decimals,
-        MANAGE_WITH_SLTP // Pass the global config
-      );
-    } else if (!buySuccessResult?.success) {
-      // Check for explicit failure
+    if (buySuccessResult?.success) {
+      if (this.executeTrades) {
+        const signature =
+          (buySuccessResult as ExecuteResult).signature ??
+          "error_getting_signature";
+        logInfo(
+          `[Bot-${botWalletShort}] ✅ Successful BUY of ${tokenInfo.symbol}. Explorer: ${this.explorerUrl}/tx/${signature}`
+        );
+        this.stateManager.addOrUpdateHolding(
+          tokenMint,
+          botExpectedTokensLamports, // Actual amount of tokens the bot expects to receive
+          botSolCostLamports, // Actual amount of SOL the bot expects to spend
+          signature,
+          monitoredWallet.toBase58(),
+          tokenInfo.decimals,
+          MANAGE_WITH_SLTP // Pass the global config
+        );
+      } else {
+        logInfo(
+          `[Bot-${botWalletShort}] ✅ SIMULATED BUY of ${tokenInfo.symbol} successful.`
+        );
+      }
+    } else {
       logWarn(
-        `[${botWalletShort}] BUY execution/simulation failed for ${tokenInfo.symbol}. Holdings not updated.`
+        `[Bot-${botWalletShort}] ❌ ${tradeModeStatus} BUY of ${tokenInfo.symbol} FAILED. Holdings not updated.`
       );
     }
+    logInfo(
+      `[Bot-${botWalletShort}] --- BUY processing for ${tokenInfo.symbol} END ---`
+    );
   }
 
   private async processSellTrade(
@@ -246,18 +247,17 @@ export class TradeExecutor {
       tradeDetails;
 
     logInfo(
-      `\n--- 🔻 COPY-SELL Detected [${shortenAddress(
-        monitoredWallet.toBase58()
-      )}] ---`
+      `\n[Bot-${botWalletShort}] ---> COPY-SELL DETECTED for ${
+        tokenInfo.symbol
+      } from ${shortenAddress(monitoredWallet.toBase58())} <---`
     );
-    logInfo(` Original Tx: ${originalTxSignature}`);
-    logInfo(` Token Mint: ${tokenMint} (${tokenInfo.symbol})`);
-    logInfo(`-----------------------`);
+    logInfo(` Original Tx: ${this.explorerUrl}/tx/${originalTxSignature}`);
+    // logInfo(` Token Mint: ${tokenMint} (${tokenInfo.symbol})`); // Already in first line
 
     const holding = this.stateManager.getHolding(tokenMint);
     if (!holding) {
       logInfo(
-        `[${botWalletShort}] Monitored wallet sold ${tokenInfo.symbol}, but bot does not hold this token. Ignoring copy-sell.`
+        `[Bot-${botWalletShort}] Monitored wallet sold ${tokenInfo.symbol}, but bot does not hold this token. Ignoring copy-sell.`
       );
       return;
     }
@@ -266,7 +266,7 @@ export class TradeExecutor {
     // for SLTP-managed tokens due to the check in processTrade. This is a safeguard.
     if (MANAGE_WITH_SLTP && holding.avgPurchasePriceInSol !== undefined) {
       logWarn(
-        `[${botWalletShort}] Attempted to copy-sell ${tokenInfo.symbol}, but it's under SL/TP. This should have been filtered earlier. Ignoring.`
+        `[Bot-${botWalletShort}] Attempted to copy-sell ${tokenInfo.symbol}, but it's under SL/TP. This should have been filtered earlier. Ignoring.`
       );
       return;
     }
@@ -275,13 +275,15 @@ export class TradeExecutor {
     const sellAmountTokenDisplay =
       Number(sellAmountTokenLamports) / 10 ** tokenInfo.decimals;
 
+    const tradeModeStatus = this.executeTrades
+      ? "REAL EXECUTION"
+      : "SIMULATION ONLY";
     logInfo(
-      `[${botWalletShort}] Bot holds ${sellAmountTokenDisplay.toFixed(
+      `[Bot-${botWalletShort}] Bot holds ${sellAmountTokenDisplay.toFixed(
         tokenInfo.decimals
-      )} ${tokenInfo.symbol}. Preparing to COPY-SELL...`
-    );
-    logInfo(
-      `Mode: ${this.executeTrades ? "REAL EXECUTION" : "SIMULATION ONLY"}`
+      )} ${
+        tokenInfo.symbol
+      }. Preparing to ${tradeModeStatus.toLowerCase()} COPY-SELL...`
     );
 
     const quoteResponse = await getJupiterQuote(
@@ -294,15 +296,17 @@ export class TradeExecutor {
 
     if (!quoteResponse) {
       logError(
-        `[${botWalletShort}] CRITICAL: Failed to get Jupiter quote for COPY-SELLING ${tokenInfo.symbol}. Aborting.`
+        `[Bot-${botWalletShort}] CRITICAL: Failed to get Jupiter quote for COPY-SELLING ${tokenInfo.symbol}. Aborting.`
       );
       return;
     }
     const botExpectedSolLamports = BigInt(quoteResponse.outAmount);
     logInfo(
-      `[${botWalletShort}] Received Jupiter quote for copy-sell (Bot expects ~${(
+      `[Bot-${botWalletShort}] Jupiter quote for copy-sell: Sell ${sellAmountTokenDisplay.toFixed(
+        tokenInfo.decimals
+      )} ${tokenInfo.symbol} for ~${(
         Number(botExpectedSolLamports) / LAMPORTS_PER_SOL
-      ).toFixed(9)} SOL).`
+      ).toFixed(9)} SOL.`
     );
 
     const swapResponse = await getJupiterSwap(
@@ -313,13 +317,10 @@ export class TradeExecutor {
 
     if (!swapResponse || !swapResponse.swapTransaction) {
       logError(
-        `[${botWalletShort}] CRITICAL: Failed to get Jupiter swap instructions for COPY-SELLING ${tokenInfo.symbol}. Aborting.`
+        `[Bot-${botWalletShort}] CRITICAL: Failed to get Jupiter swap instructions for COPY-SELLING ${tokenInfo.symbol}. Aborting.`
       );
       return;
     }
-    logInfo(
-      `[${botWalletShort}] Received Jupiter swap instructions for COPY-SELL.`
-    );
 
     let versionedTx: VersionedTransaction;
     try {
@@ -329,11 +330,11 @@ export class TradeExecutor {
       );
       versionedTx = VersionedTransaction.deserialize(swapTransactionBuf);
       versionedTx.sign([this.botKeypair]);
-      logDebug(`[${botWalletShort}] COPY-SELL Swap transaction signed by bot.`);
     } catch (error: any) {
       logError(
-        `[${botWalletShort}] CRITICAL: Error processing COPY-SELL transaction object for ${tokenInfo.symbol}:`,
-        error.message ?? error
+        `[Bot-${botWalletShort}] CRITICAL: Error processing COPY-SELL transaction object for ${
+          tokenInfo.symbol
+        }: ${error.message ?? error}`
       );
       return;
     }
@@ -353,20 +354,35 @@ export class TradeExecutor {
         sellAmountTokenDisplay
       );
     }
-    logInfo(
-      // Moved logging outside
-      `[${botWalletShort}] COPY-SELL execution/simulation result: ${JSON.stringify(
-        sellSuccessResult
-      )}`
-    );
+    // logInfo( // Redundant, specific outcomes logged below
+    //   // Moved logging outside
+    //   `[Bot-${botWalletShort}] COPY-SELL execution/simulation result: ${JSON.stringify(
+    //     sellSuccessResult
+    //   )}`
+    // );
 
-    if (sellSuccessResult?.success && this.executeTrades) {
-      this.stateManager.removeHolding(tokenMint);
-    } else if (!sellSuccessResult?.success) {
+    if (sellSuccessResult?.success) {
+      if (this.executeTrades) {
+        const signature =
+          (sellSuccessResult as ExecuteResult).signature ??
+          "error_getting_signature";
+        logInfo(
+          `[Bot-${botWalletShort}] ✅ Successful COPY-SELL of ${tokenInfo.symbol}. Explorer: ${this.explorerUrl}/tx/${signature}`
+        );
+        this.stateManager.removeHolding(tokenMint);
+      } else {
+        logInfo(
+          `[Bot-${botWalletShort}] ✅ SIMULATED COPY-SELL of ${tokenInfo.symbol} successful.`
+        );
+      }
+    } else {
       logWarn(
-        `[${botWalletShort}] COPY-SELL execution/simulation failed for ${tokenInfo.symbol}. Holdings not removed.`
+        `[Bot-${botWalletShort}] ❌ ${tradeModeStatus} COPY-SELL of ${tokenInfo.symbol} FAILED. Holdings not removed.`
       );
     }
+    logInfo(
+      `[Bot-${botWalletShort}] --- COPY-SELL processing for ${tokenInfo.symbol} END ---`
+    );
   }
 
   /**
@@ -385,22 +401,24 @@ export class TradeExecutor {
     const reasonFull = reason === "SL" ? "Stop-Loss" : "Take-Profit";
 
     logInfo(
-      `\n--- 📈 SL/TP Triggered: ${reasonFull} for ${tokenInfo.symbol} (${tokenMint}) ---`
+      `\n[Bot-${botWalletShort}] ---> ${reasonFull.toUpperCase()} TRIGGERED for ${
+        tokenInfo.symbol
+      } (${tokenMint}) <---`
     );
     const sellAmountTokenLamports = holding.amountLamports;
     const sellAmountTokenDisplay =
       Number(sellAmountTokenLamports) /
       10 ** (holding.tokenDecimals || tokenInfo.decimals);
 
+    const tradeModeStatus = this.executeTrades
+      ? "REAL EXECUTION"
+      : "SIMULATION ONLY";
     logInfo(
-      `[${botWalletShort}] Bot holds ${sellAmountTokenDisplay.toFixed(
+      `[Bot-${botWalletShort}] Bot holds ${sellAmountTokenDisplay.toFixed(
         holding.tokenDecimals || tokenInfo.decimals
-      )} ${tokenInfo.symbol}. Preparing ${reasonFull} sell...`
-    );
-    logInfo(
-      `          Mode: ${
-        this.executeTrades ? "REAL EXECUTION" : "SIMULATION ONLY"
-      }`
+      )} ${
+        tokenInfo.symbol
+      }. Preparing ${tradeModeStatus.toLowerCase()} ${reasonFull} sell...`
     );
 
     const quoteResponse = await getJupiterQuote(
@@ -413,15 +431,17 @@ export class TradeExecutor {
 
     if (!quoteResponse) {
       logError(
-        `[${botWalletShort}] CRITICAL: Failed to get Jupiter quote for ${reasonFull} SELLING ${tokenInfo.symbol}. Aborting.`
+        `[Bot-${botWalletShort}] CRITICAL: Failed to get Jupiter quote for ${reasonFull} SELLING ${tokenInfo.symbol}. Aborting.`
       );
       return;
     }
     const botExpectedSolLamports = BigInt(quoteResponse.outAmount);
     logInfo(
-      `[${botWalletShort}] Received Jupiter quote for ${reasonFull} sell (Bot expects ~${(
+      `[Bot-${botWalletShort}] Jupiter Quote for ${reasonFull} sell: Sell ${sellAmountTokenDisplay.toFixed(
+        holding.tokenDecimals || tokenInfo.decimals
+      )} ${tokenInfo.symbol} for ~${(
         Number(botExpectedSolLamports) / LAMPORTS_PER_SOL
-      ).toFixed(9)} SOL).`
+      ).toFixed(9)} SOL.`
     );
 
     const swapResponse = await getJupiterSwap(
@@ -432,13 +452,10 @@ export class TradeExecutor {
 
     if (!swapResponse || !swapResponse.swapTransaction) {
       logError(
-        `[${botWalletShort}] CRITICAL: Failed to get Jupiter swap instructions for ${reasonFull} SELLING ${tokenInfo.symbol}. Aborting.`
+        `[Bot-${botWalletShort}] CRITICAL: Failed to get Jupiter swap instructions for ${reasonFull} SELLING ${tokenInfo.symbol}. Aborting.`
       );
       return;
     }
-    logInfo(
-      `[${botWalletShort}] Received Jupiter swap instructions for ${reasonFull} SELL.`
-    );
 
     let versionedTx: VersionedTransaction;
     try {
@@ -448,13 +465,11 @@ export class TradeExecutor {
       );
       versionedTx = VersionedTransaction.deserialize(swapTransactionBuf);
       versionedTx.sign([this.botKeypair]);
-      logDebug(
-        `[${botWalletShort}] ${reasonFull} SELL Swap transaction signed by bot.`
-      );
     } catch (error: any) {
       logError(
-        `[${botWalletShort}] CRITICAL: Error processing ${reasonFull} SELL transaction object for ${tokenInfo.symbol}:`,
-        error.message ?? error
+        `[Bot-${botWalletShort}] CRITICAL: Error processing ${reasonFull} SELL transaction object for ${
+          tokenInfo.symbol
+        }: ${error.message ?? error}`
       );
       return;
     }
@@ -474,23 +489,38 @@ export class TradeExecutor {
         sellAmountTokenDisplay
       );
     }
-    logInfo(
-      // Moved logging outside
-      `[${botWalletShort}] ${reasonFull} SELL execution/simulation result: ${JSON.stringify(
-        sellSuccessResult
-      )}`
-    );
+    // logInfo( // Redundant, specific outcomes logged below
+    //   // Moved logging outside
+    //   `[Bot-${botWalletShort}] ${reasonFull} SELL execution/simulation result: ${JSON.stringify(
+    //     sellSuccessResult
+    //   )}`
+    // );
 
-    if (sellSuccessResult?.success && this.executeTrades) {
-      this.stateManager.removeHolding(tokenMint);
-      logInfo(
-        `[${botWalletShort}] ${reasonFull} successful for ${tokenInfo.symbol}. Holding removed.`
-      );
-    } else if (!sellSuccessResult?.success) {
+    if (sellSuccessResult?.success) {
+      if (this.executeTrades) {
+        const signature =
+          (sellSuccessResult as ExecuteResult).signature ??
+          "error_getting_signature";
+        logInfo(
+          `[Bot-${botWalletShort}] ✅ Successful ${reasonFull} SELL of ${tokenInfo.symbol}. Explorer: ${this.explorerUrl}/tx/${signature}`
+        );
+        this.stateManager.removeHolding(tokenMint);
+        // logInfo( // Combined with above
+        //   `[Bot-${botWalletShort}] ${reasonFull} successful for ${tokenInfo.symbol}. Holding removed.`
+        // );
+      } else {
+        logInfo(
+          `[Bot-${botWalletShort}] ✅ SIMULATED ${reasonFull} SELL of ${tokenInfo.symbol} successful.`
+        );
+      }
+    } else {
       logWarn(
-        `[${botWalletShort}] ${reasonFull} SELL execution/simulation failed for ${tokenInfo.symbol}. Holdings not removed.`
+        `[Bot-${botWalletShort}] ❌ ${tradeModeStatus} ${reasonFull} SELL of ${tokenInfo.symbol} FAILED. Holdings not removed.`
       );
     }
+    logInfo(
+      `[Bot-${botWalletShort}] --- ${reasonFull} processing for ${tokenInfo.symbol} END ---`
+    );
   }
 
   private async executeRealTradeInternal(
@@ -504,51 +534,40 @@ export class TradeExecutor {
     );
     const typeUpper = tradeTypeContext.toUpperCase();
     logInfo(
-      `[${botWalletShort}] -------- REAL ${typeUpper} EXECUTION START --------`
+      `[Bot-${botWalletShort}] -------- REAL ${typeUpper} EXECUTION START --------`
     );
     let copyTradeTxId: string | undefined = undefined;
 
     try {
       const rawTransaction = transaction.serialize();
-      // Use sendOptions from SolanaClient for consistency if needed, or define here.
       copyTradeTxId = await this.solanaClient.sendRawTransaction(
         rawTransaction
-        // { skipPreflight: true, maxRetries: 5 } // Default options
       );
       logInfo(
-        `[${botWalletShort}] 🚀 ${typeUpper} Trade Sent! Sig: ${copyTradeTxId}`
+        `[Bot-${botWalletShort}] 🚀 ${typeUpper} Trade Sent! Sig: ${copyTradeTxId}`
       );
       logInfo(`-> Explorer: ${this.explorerUrl}/tx/${copyTradeTxId}`);
       logInfo(
-        `[${botWalletShort}] ⏳ Waiting for confirmation ('${
+        `[Bot-${botWalletShort}] ⏳ Waiting for confirmation ('${
           (await this.solanaClient.connection.commitment) || "default"
-        }')...` // Using connection's commitment
+        }') for ${tokenInfo.symbol}...`
       );
 
-      const latestBlockhash = await this.solanaClient
-        .getLatestBlockhash
-        // COMMITMENT_LEVEL.confirmation // from config
-        ();
+      const latestBlockhash = await this.solanaClient.getLatestBlockhash();
       const confirmationStrategy: TransactionConfirmationStrategy = {
         signature: copyTradeTxId,
         blockhash: latestBlockhash.blockhash,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
       };
 
-      await this.solanaClient.confirmTransaction(
-        confirmationStrategy
-        // COMMITMENT_LEVEL.confirmation // from config
-      );
-      logInfo(
-        `[${botWalletShort}] ✅ ${typeUpper} Transaction Confirmed Successfully!`
-      );
+      await this.solanaClient.confirmTransaction(confirmationStrategy);
       return { success: true, signature: copyTradeTxId };
     } catch (execError: any) {
       logError(
-        `[${botWalletShort}] CRITICAL: Error during real ${typeUpper} execution for ${tokenInfo.symbol}:`,
-        execError.message ?? execError
+        `[Bot-${botWalletShort}] CRITICAL: Error during real ${typeUpper} execution for ${
+          tokenInfo.symbol
+        }: ${execError.message ?? execError}`
       );
-      // ... (existing error diagnosis logic)
       if (copyTradeTxId) {
         logError(
           `          -> Check Tx Status Manually: ${this.explorerUrl}/tx/${copyTradeTxId}`
@@ -557,7 +576,7 @@ export class TradeExecutor {
       return { success: false };
     } finally {
       logInfo(
-        `[${botWalletShort}] -------- REAL ${typeUpper} EXECUTION END --------`
+        `[Bot-${botWalletShort}] -------- REAL ${typeUpper} EXECUTION END --------`
       );
     }
   }
@@ -565,7 +584,7 @@ export class TradeExecutor {
   private async simulateTradeInternal(
     transaction: VersionedTransaction,
     tokenInfo: TokenInfo,
-    tradeTypeContext: string, // e.g., "buy", "sell (copy)", "sell (SL)"
+    tradeTypeContext: string,
     amount: number
   ): Promise<SimulateResult> {
     const botWalletShort = shortenAddress(
@@ -574,7 +593,7 @@ export class TradeExecutor {
     );
     const typeUpper = tradeTypeContext.toUpperCase();
     logInfo(
-      `[${botWalletShort}] -------- ${typeUpper} SIMULATION START --------`
+      `[Bot-${botWalletShort}] -------- ${typeUpper} SIMULATION START --------`
     );
 
     const direction = tradeTypeContext.startsWith("buy")
@@ -584,8 +603,8 @@ export class TradeExecutor {
       ? "SOL"
       : tokenInfo.symbol;
     logInfo(
-      `[${botWalletShort}] Simulating ${typeUpper} trade: ${amount.toFixed(
-        4 // Consider token decimals for amount display accuracy
+      `[Bot-${botWalletShort}] Simulating ${typeUpper} trade: ${amount.toFixed(
+        4
       )} ${amountSymbol} (${direction})`
     );
 
@@ -597,7 +616,7 @@ export class TradeExecutor {
 
       const simConfig = {
         commitment:
-          (await this.solanaClient.connection.commitment) || "confirmed", // Using connection's commitment
+          (await this.solanaClient.connection.commitment) || "confirmed",
         replaceRecentBlockhash: true,
         sigVerify: false,
         accounts:
@@ -620,46 +639,37 @@ export class TradeExecutor {
         );
 
       if (simulationResult.value.err) {
-        logError(`[${botWalletShort}] ❌ ${typeUpper} SIMULATION FAILED!`);
+        logError(
+          `[Bot-${botWalletShort}] ❌ ${typeUpper} SIMULATION FAILED for ${tokenInfo.symbol}!`
+        );
         logError(
           `          -> Error:`,
           JSON.stringify(simulationResult.value.err)
         );
-        // ... (existing error diagnosis logic)
         if (simulationResult.value.logs?.length) {
-          logWarn(`          -> Simulation Logs:`);
+          logWarn(`          -> Simulation Logs (Failure):`);
           simulationResult.value.logs.forEach((log) =>
             logWarn(`             | ${log}`)
           );
         } else {
-          logWarn(`          -> No simulation logs available.`);
+          logWarn(
+            `          -> No simulation logs available for failed simulation.`
+          );
         }
         return { success: false };
       } else {
-        logInfo(`[${botWalletShort}] ✅ ${typeUpper} SIMULATION SUCCEEDED!`);
-        logInfo(
-          `          -> Compute Units Consumed: ${
-            simulationResult.value.unitsConsumed ?? "N/A"
-          }`
-        );
-        if (simulationResult.value.logs?.length) {
-          logDebug(`          -> Simulation Logs (Success):`);
-          simulationResult.value.logs.forEach((log) =>
-            logDebug(`             | ${log}`)
-          );
-        }
         return { success: true };
       }
     } catch (simError: any) {
       logError(
-        `[${botWalletShort}] CRITICAL: Error calling simulation API for ${typeUpper} ${tokenInfo.symbol}:`,
-        simError.message ?? simError
+        `[Bot-${botWalletShort}] CRITICAL: Error calling simulation API for ${typeUpper} ${
+          tokenInfo.symbol
+        }: ${simError.message ?? simError}`
       );
-      // ... (existing error diagnosis logic)
       return { success: false };
     } finally {
       logInfo(
-        `[${botWalletShort}] -------- ${typeUpper} SIMULATION END --------`
+        `[Bot-${botWalletShort}] -------- ${typeUpper} SIMULATION END --------`
       );
     }
   }

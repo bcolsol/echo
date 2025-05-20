@@ -1,4 +1,3 @@
-// src/config/index.ts
 import fs from "fs";
 import path from "path";
 import {
@@ -29,8 +28,12 @@ interface ConfigData {
 let configData: ConfigData;
 
 if (!fs.existsSync(CONFIG_FILE_PATH)) {
-  logCritical(`Configuration file not found at ${CONFIG_FILE_PATH}.`);
-  logCritical(`Please run 'npm run setup' to generate the configuration file.`);
+  logCritical(
+    `🚨 Configuration file (config.json) not found at ${CONFIG_FILE_PATH}.`
+  );
+  logCritical(
+    `👉 Please run 'npm run setup' to generate the configuration file.`
+  );
   process.exit(1);
 }
 
@@ -39,10 +42,10 @@ try {
   configData = JSON.parse(fileContent) as ConfigData;
 } catch (error: any) {
   logCritical(
-    `Failed to parse configuration from ${CONFIG_FILE_PATH}: ${error.message}`
+    `🚨 Failed to parse configuration from ${CONFIG_FILE_PATH}: ${error.message}`
   );
   logCritical(
-    "Please ensure config.json is valid or run 'npm run setup' again."
+    "   Please ensure config.json is valid or run 'npm run setup' again."
   );
   process.exit(1);
 }
@@ -88,16 +91,16 @@ if (manageWithSLTPString === "true") {
 }
 
 if (monitoredWalletsRaw.length === 0) {
-  missingVars.push("MONITORED_WALLETS_RAW (must not be empty in config.json)");
+  missingVars.push("MONITORED_WALLETS_RAW (must not be empty)");
 }
 
 if (missingVars.length > 0) {
   logCritical(
-    `Error: Missing or invalid required fields in config.json: ${missingVars.join(
+    `🚨 Error: Missing or invalid required fields in config.json: ${missingVars.join(
       ", "
     )}.`
   );
-  logCritical("Please run 'npm run setup' or fix config.json.");
+  logCritical("   Please run 'npm run setup' or manually fix config.json.");
   process.exit(1);
 }
 
@@ -120,13 +123,11 @@ let botKeypairInstance: Keypair;
 try {
   const privateKeyBytes = bs58.decode(botPrivateKeyString!);
   botKeypairInstance = Keypair.fromSecretKey(privateKeyBytes);
-  logInfo(
-    `Bot wallet loaded successfully: ${botKeypairInstance.publicKey.toBase58()}`
-  );
 } catch (error) {
   logCritical(
-    `Failed to load bot keypair from BOT_PRIVATE_KEY in config.json: ${error}`
+    `🚨 Failed to load bot keypair from BOT_PRIVATE_KEY in config.json: ${error}`
   );
+  logCritical("   Ensure it is a valid base58 encoded private key.");
   process.exit(1);
 }
 export const BOT_KEYPAIR: Keypair = botKeypairInstance;
@@ -138,14 +139,14 @@ export const EXECUTE_TRADES = executeTradesString === "true";
 
 if (isNaN(COPY_TRADE_AMOUNT_SOL) || COPY_TRADE_AMOUNT_SOL <= 0) {
   logCritical(
-    "Invalid COPY_TRADE_AMOUNT_SOL in config.json. Must be a positive number."
+    "🚨 Invalid COPY_TRADE_AMOUNT_SOL in config.json. Must be a positive number."
   );
   process.exit(1);
 }
 
 if (isNaN(SLIPPAGE_BPS) || SLIPPAGE_BPS < 0) {
   logCritical(
-    "Invalid SLIPPAGE_BPS in config.json. Must be a non-negative integer."
+    "🚨 Invalid SLIPPAGE_BPS in config.json. Must be a non-negative integer."
   );
   process.exit(1);
 }
@@ -154,13 +155,13 @@ export const TRADE_AMOUNT_LAMPORTS = Math.floor(
   COPY_TRADE_AMOUNT_SOL * LAMPORTS_PER_SOL
 );
 
-logInfo(
-  `Trading Mode: ${EXECUTE_TRADES ? "REAL EXECUTION" : "SIMULATION ONLY"}`
-);
-logInfo(
-  `Copy Trade Amount: ${COPY_TRADE_AMOUNT_SOL} SOL (${TRADE_AMOUNT_LAMPORTS} Lamports)`
-);
-logInfo(`Slippage Tolerance: ${SLIPPAGE_BPS} BPS`);
+// logInfo( // These will be logged more contextually in index.ts or WalletMonitor
+//   `Trading Mode: ${EXECUTE_TRADES ? "REAL EXECUTION" : "SIMULATION ONLY"}`
+// );
+// logInfo(
+//   `Copy Trade Amount: ${COPY_TRADE_AMOUNT_SOL} SOL (${TRADE_AMOUNT_LAMPORTS} Lamports)`
+// );
+// logInfo(`Slippage Tolerance: ${SLIPPAGE_BPS} BPS (${SLIPPAGE_BPS/100}%)`);
 
 // SL/TP Parameters
 export const MANAGE_WITH_SLTP = manageWithSLTPString === "true";
@@ -175,28 +176,28 @@ if (MANAGE_WITH_SLTP) {
 
   if (isNaN(TAKE_PROFIT_PERCENTAGE) || TAKE_PROFIT_PERCENTAGE <= 0) {
     logCritical(
-      "Invalid TAKE_PROFIT_PERCENTAGE in config.json. Must be a positive number."
+      "🚨 Invalid TAKE_PROFIT_PERCENTAGE in config.json. Must be a positive number if MANAGE_WITH_SLTP is true."
     );
     process.exit(1);
   }
   if (isNaN(STOP_LOSS_PERCENTAGE) || STOP_LOSS_PERCENTAGE <= 0) {
     logCritical(
-      "Invalid STOP_LOSS_PERCENTAGE in config.json. Must be a positive number."
+      "🚨 Invalid STOP_LOSS_PERCENTAGE in config.json. Must be a positive number if MANAGE_WITH_SLTP is true."
     );
     process.exit(1);
   }
   if (isNaN(PRICE_CHECK_INTERVAL_MS) || PRICE_CHECK_INTERVAL_MS <= 0) {
     logCritical(
-      "Invalid PRICE_CHECK_INTERVAL_MS in config.json. Must be a positive integer."
+      "🚨 Invalid PRICE_CHECK_INTERVAL_MS in config.json. Must be a positive integer if MANAGE_WITH_SLTP is true."
     );
     process.exit(1);
   }
-  logInfo(`Stop-Loss/Take-Profit Management: ENABLED`);
-  logInfo(`  Take Profit At: +${TAKE_PROFIT_PERCENTAGE}%`);
-  logInfo(`  Stop Loss At: -${STOP_LOSS_PERCENTAGE}%`);
-  logInfo(`  Price Check Interval: ${PRICE_CHECK_INTERVAL_MS}ms`);
+  // logInfo(`Stop-Loss/Take-Profit Management: ENABLED`); // Logged by WalletMonitor/index.ts
+  // logInfo(`  Take Profit At: +${TAKE_PROFIT_PERCENTAGE}%`);
+  // logInfo(`  Stop Loss At: -${STOP_LOSS_PERCENTAGE}%`);
+  // logInfo(`  Price Check Interval: ${PRICE_CHECK_INTERVAL_MS}ms`);
 } else {
-  logInfo(`Stop-Loss/Take-Profit Management: DISABLED (Full Copy Mode)`);
+  // logInfo(`Stop-Loss/Take-Profit Management: DISABLED (Full Copy Mode)`); // Logged by WalletMonitor/index.ts
 }
 
 // --- Monitored Wallets ---
@@ -206,26 +207,19 @@ for (const addr of monitoredWalletsRaw) {
     MONITORED_WALLETS.push({ address: addr, pubkey: new PublicKey(addr) });
   } catch (e) {
     logWarn(
-      `Invalid address found in monitored list in config.json: ${addr}. Skipping.`
+      `⚠️ Invalid wallet address in MONITORED_WALLETS_RAW (config.json): "${addr}". Skipping.`
     );
   }
 }
 
-if (MONITORED_WALLETS.length === 0 && monitoredWalletsRaw.length > 0) {
-  // Check if some were provided but all were invalid
-  logError(
-    "MONITORED_WALLETS_RAW in config.json contains only invalid addresses. The bot won't copy any trades."
+if (MONITORED_WALLETS.length === 0) {
+  // This implies all provided were invalid or none were provided
+  logCritical(
+    "🚨 No valid wallet addresses found to monitor after processing config.json. Please add wallets to monitor."
   );
   process.exit(1);
-} else if (monitoredWalletsRaw.length === 0) {
-  // This should have been caught by missingVars earlier
-  logError(
-    "MONITORED_WALLETS_RAW is empty in config.json. Please add wallets to monitor via 'npm run setup'."
-  );
-  process.exit(1);
-} else {
-  logInfo(`Monitoring ${MONITORED_WALLETS.length} wallets from config.json.`);
 }
+// logInfo(`Monitoring ${MONITORED_WALLETS.length} wallets from config.json.`); // Logged by WalletMonitor
 
 // --- DEX & Token Constants ---
 export const DEX_PROGRAM_IDS: Set<string> = new Set([
@@ -252,17 +246,23 @@ export const JUPITER_STRICT_TOKEN_LIST_URL = "https://token.jup.ag/strict";
 export const JUPITER_QUOTE_API_URL = "https://quote-api.jup.ag/v6/quote";
 export const JUPITER_SWAP_API_URL = "https://quote-api.jup.ag/v6/swap";
 
-logInfo("Configuration loaded successfully from config.json.");
+// logInfo("Configuration loaded successfully from config.json."); // Already logged at the start
 
+// WebSocket Polyfill for Node.js (if needed, typically for older Node or specific environments)
 if (typeof window === "undefined") {
   try {
+    // Dynamically require 'ws' to avoid issues in environments where it's not needed/available
     const WebSocket = require("ws");
     // @ts-ignore
-    global.WebSocket = WebSocket;
-    logInfo("Applied WebSocket polyfill for Node.js environment.");
+    if (!global.WebSocket) {
+      // Check if it's not already defined
+      // @ts-ignore
+      global.WebSocket = WebSocket;
+      logInfo("[Config] Applied WebSocket polyfill for Node.js environment."); // Added prefix for clarity
+    }
   } catch (err) {
     logWarn(
-      "Could not load 'ws' module for WebSocket polyfill. Ensure it's installed if running in Node.js older versions or specific environments."
+      "[Config] Could not load 'ws' module for WebSocket polyfill. This is usually fine for modern Node.js versions."
     );
   }
 }

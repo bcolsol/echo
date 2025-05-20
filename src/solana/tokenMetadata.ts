@@ -37,7 +37,6 @@ export class TokenMetadataService {
    * Initializes the token cache by fetching data from the Jupiter token list.
    */
   async initializeTokenMap(): Promise<void> {
-    logInfo(`Initializing token list from ${this.jupiterTokenListUrl}...`);
     try {
       const response = await fetch(this.jupiterTokenListUrl);
 
@@ -76,10 +75,6 @@ export class TokenMetadataService {
           count++;
         }
       });
-
-      logInfo(
-        `Token cache initialized. Added ${count} tokens from Jupiter list. Total known: ${this.tokenInfoCache.size}`
-      );
     } catch (error) {
       logError("Error initializing token map from Jupiter:", error);
     }

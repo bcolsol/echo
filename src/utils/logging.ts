@@ -29,12 +29,3 @@ export function logError(...message: any[]): void {
 export function logCritical(...message: any[]): void {
   console.error("[CRITICAL]", ...message);
 }
-
-/**
- * Logs a debug message (can be filtered later if using a proper logger).
- * @param message The message parts to log.
- */
-export function logDebug(...message: any[]): void {
-  // For now, just log normally. Could add conditional logic later.
-  console.debug("[DEBUG]", ...message);
-}
