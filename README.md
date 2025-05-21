@@ -30,7 +30,7 @@ Now I am open-sourcing it, not just to build trust, but to invite collaboration.
 
 Here's a glimpse of Echo monitoring wallets and executing trades:
 
-![Echo Solana Copy Trading Bot in Action](https://s14.gifyu.com/images/bsZF1.gif)
+<img src="https://s14.gifyu.com/images/bsZF1.gif" alt="Echo Solana Copy Trading Bot in Action" width="600" />
 
 ## Use cases
 
@@ -156,7 +156,7 @@ Follow these steps to set up and run the bot:
 
 ```bash
 
-git clone [https://github.com/bcolsol/echo.git](https://github.com/bcolsol/echo.git)
+git clone https://github.com/bcolsol/echo.git
 
 cd echo
 
@@ -175,12 +175,11 @@ npm install
 - Run the interactive setup
 
 ```bash
-
 npm run setup
 
 ```
 
-![Echo Solana Copy Trading Bot in Action](https://s14.gifyu.com/images/bsZFo.gif)
+<img src="https://s14.gifyu.com/images/bsZFo.gif" alt="Echo Solana Copy Trading Bot setup" width="600" />
 
 **4. Running the Bot:**
 
