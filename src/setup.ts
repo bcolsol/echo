@@ -1,4 +1,3 @@
-// src/setup.ts
 import inquirer, { Answers } from "inquirer";
 import fs from "fs";
 import path from "path";
@@ -25,12 +24,12 @@ const defaultSetupValues = {
   RPC_ENDPOINT: "https://api.mainnet-beta.solana.com",
   EXPLORER_URL: "https://solscan.io",
   COPY_TRADE_AMOUNT_SOL: "0.05", // Keep as string for input type
-  SLIPPAGE_BPS: 500,
-  EXECUTE_TRADES: false,
-  MANAGE_WITH_SLTP: false,
+  SLIPPAGE_BPS: 1000,
+  EXECUTE_TRADES: true,
+  MANAGE_WITH_SLTP: true,
   TAKE_PROFIT_PERCENTAGE: 20,
   STOP_LOSS_PERCENTAGE: 10,
-  PRICE_CHECK_INTERVAL_MS: 60000,
+  PRICE_CHECK_INTERVAL_MS: 20000,
   MONITORED_WALLETS_RAW_STRING: "",
 };
 
@@ -64,7 +63,7 @@ const validateSolAmountString = (input: string): boolean | string => {
 };
 
 const validatePositiveNumber = (input: number): boolean | string =>
-  input > 0 ? true : "Amount must be greater than 0."; // Kept for other purely numerical inputs if any in future
+  input > 0 ? true : "Amount must be greater than 0.";
 
 const validateNonNegativeNumber = (input: number): boolean | string =>
   input >= 0 ? true : "Value must be non-negative.";
@@ -109,8 +108,6 @@ const validateConditionalPositiveNumber = (
 };
 
 export async function runSetup(): Promise<void> {
-  logInfo("Starting interactive bot configuration setup...");
-
   const questions: any = [
     {
       type: "input",
