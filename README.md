@@ -140,57 +140,93 @@ This project is actively evolving. Here are some of the features planned for the
 
 ## ⚙️ Setup & Configuration
 
-### Not a developer? Join our [discord](https://discord.gg/AHdWVrKB) to get help with setting up the bot.
+This guide will walk you through getting Echo set up on your computer. If you're not a developer, don't worry! We'll go step-by-step.
 
-Follow these steps to set up and run the bot:
+### Not a developer? Join our [discord](https://discord.gg/AHdWVrKB) to get help with setting up the bot.
 
 **1. Prerequisites:**
 
-- **Node.js:** Version 18.x or higher recommended (check with `node -v`).
+- **Node.js and npm:** These are essential tools for running Echo. Node.js is a JavaScript runtime (like an engine for the bot's code), and npm (Node Package Manager) helps install other tools Echo needs.
+  - **How to install Node.js and npm (for non-technical users):**
+    - **What are these?** Think of Node.js as the engine for the bot, and npm as a helper that gets other parts the engine needs. They usually come together.
+    - **Opening the Terminal (Command Prompt):**
+      - **Windows:** Press the `Windows Key` (it looks like a little window), type `cmd` or `Command Prompt`, and press `Enter`.
+      - **macOS:** Press `Command (⌘) + Spacebar` to open Spotlight Search, type `Terminal`, and press `Enter`.
+      - **Linux (Ubuntu/Debian):** Press `Ctrl + Alt + T`. For other versions, search for "Terminal" in your applications menu.
+    - **Step 1: Check if you already have Node.js:**
+      - In your terminal, type `node -v` and press `Enter`.
+      - Then, type `npm -v` and press `Enter`.
+      - If you see version numbers (e.g., `v18.x.x` for node and `9.x.x` for npm), you likely have them installed. Make sure the Node.js version is 18.x or higher. If it is, you can skip to step 3.
+    - **Step 2: Install Node.js and npm if you don't have them (or need to update):**
+      - Go to the official Node.js website: [https://nodejs.org/](https://nodejs.org/)
+      - You'll usually see two download options: **LTS** (Long Term Support) and **Current**. For most users, **LTS is recommended** as it's more stable. Click on the LTS version to download it.
+      - Once downloaded, open the installer file (it might be a `.msi` on Windows or a `.pkg` on macOS).
+      - Follow the on-screen instructions. The default settings are usually fine. Make sure the option to install npm is also selected (it usually is by default).
+      - After installation, **close your current terminal window and open a new one.** This is important for the system to recognize the new installation.
+      - In the new terminal window, type `node -v` and `npm -v` again to confirm they are installed and see the version numbers.
+- **Git (Optional, but Recommended for Updates):** Git is a version control system. While not strictly necessary to download the initial files, it's highly recommended if you want to easily update the bot later.
+  - **How to install Git:**
+    - Go to [https://git-scm.com/downloads](https://git-scm.com/downloads).
+    - Download the installer for your operating system (Windows, macOS, or Linux).
+    - Run the installer and follow the on-screen instructions. Default settings are usually fine.
+    - To check if Git is installed, open a new terminal and type `git --version`. If you see a version number, it's installed.
 
-- **npm** or **yarn:** Package manager for Node.js.
+**2. Downloading Echo:**
 
-**2. Installation:**
+- **Method 1: Using Git (Recommended for updates)**
 
-- Clone the repository:
+  - Open your terminal (see "Opening the Terminal" above if you're unsure).
+  - Navigate to where you want to save the bot. For example, to save it in a folder called "Projects" in your user directory:
+    - On Windows: `cd %USERPROFILE%\Projects` (If "Projects" doesn't exist, you can create it first or choose another location like `cd %USERPROFILE%\Desktop`).
+    - On macOS/Linux: `cd ~/Projects` (If "Projects" doesn't exist, type `mkdir ~/Projects` first, then `cd ~/Projects`, or choose another location like `cd ~/Desktop`).
+  - Once you're in the desired directory in your terminal, copy and paste the following command and press `Enter`:
+    ```bash
+    git clone [https://github.com/bcolsol/echo.git](https://github.com/bcolsol/echo.git)
+    ```
+  - This will create a new folder named `echo` containing all the bot's files.
+  - Now, navigate into the bot's folder by typing:
+    ```bash
+    cd echo
+    ```
 
-```bash
+- **Method 2: Downloading as a ZIP (If you don't want to use Git)**
+  - Go to the Echo GitHub page: [https://github.com/bcolsol/echo](https://github.com/bcolsol/echo)
+  - Click the green "<> Code" button.
+  - In the dropdown menu, click "Download ZIP".
+  - Save the ZIP file to your computer (e.g., your Downloads folder).
+  - Find the downloaded ZIP file and extract it. (On Windows, right-click and "Extract All...". On macOS, double-click it). This will create a folder, likely named `echo-main`. You can rename it to just `echo` if you like.
+  - **Open your terminal** (see "Opening the Terminal" above).
+  - **Navigate into the extracted folder.** For example, if you extracted it to your Downloads folder and it's named `echo`:
+    - Windows: `cd %USERPROFILE%\Downloads\echo`
+    - macOS/Linux: `cd ~/Downloads/echo`
+    - _Adjust the path if you saved or extracted it elsewhere._
 
-git clone https://github.com/bcolsol/echo.git
+**3. Install Dependencies:**
 
-cd echo
+- Once you are inside the `echo` directory in your terminal (from the last step of either download method), type the following command and press `Enter`:
+  ```bash
+  npm install
+  ```
+- This command reads a file called `package.json` and automatically downloads and installs all the additional code libraries that Echo needs to function. You'll see a lot of text scrolling in the terminal – this is normal. Wait for it to finish. You might see some "WARN" messages, which are usually okay. Look for any "ERR!" messages, which might indicate a problem.
 
-```
+**4. Setup Configuration:**
 
-- Install dependencies:
+- Still in the `echo` directory in your terminal, run the interactive setup by typing:
+  ```bash
+  npm run setup
+  ```
+- This will ask you a series of questions to configure the bot (like your RPC endpoint, bot wallet private key, trade amounts, etc.). Answer each question carefully.
 
-```bash
+    <img src="https://s14.gifyu.com/images/bsZFo.gif" alt="Echo Solana Copy Trading Bot setup" width="600" />
 
-npm install
+**5. Running the Bot:**
 
-```
-
-**3. Setup**
-
-- Run the interactive setup
-
-```bash
-npm run setup
-
-```
-
-<img src="https://s14.gifyu.com/images/bsZFo.gif" alt="Echo Solana Copy Trading Bot setup" width="600" />
-
-**4. Running the Bot:**
-
-```bash
-npm start
-
-```
-
-The bot will start, load any existing holdings from `bot_holdings.json`, initialize subscriptions for the wallets defined during setup, and begin monitoring/trading.
-
-- Press `CTRL+C` to stop the bot gracefully (it will attempt to save state before exiting).
+- Once the setup is complete and your `config.json` file is created, you can start the bot. In the same `echo` directory in your terminal, type:
+  ```bash
+  npm start
+  ```
+- The bot will start, load any existing holdings from `bot_holdings.json` (if it exists from previous runs), initialize subscriptions for the wallets you defined, and begin monitoring/trading.
+- Press `CTRL+C` in the terminal to stop the bot gracefully (it will attempt to save its current state before exiting).
 
 ## 🤝 Contributing
 
