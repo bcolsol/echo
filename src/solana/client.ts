@@ -96,7 +96,7 @@ export class SolanaClient {
         serializedTransaction,
         options
       );
-      logInfo(`Transaction sent. Signature: ${signature}`);
+
       return signature;
     } catch (error: any) {
       logError(`Error sending raw transaction:`, error.message ?? error);
