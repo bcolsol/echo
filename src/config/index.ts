@@ -231,6 +231,15 @@ export const DEX_PROGRAM_IDS: Set<string> = new Set([
   "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", // RAydium concetrated liquiduty
   "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", //Meteora
   "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB", //Meteora pools program
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", //Raydiym liquidy pool v4
+  "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA", //Pumpfun
+  "SoLFiHG9TfgtdUXUjWAxi3LtvYuFyDLVhBWxdMZxyCe", //SoLFi
+  "opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb", //openbook
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", //pumpfun
+  "obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y", //obricv2
+  "2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c", //lfinity swap
+  "6m2CDdhRgxpH4WjvdzxAYbGxwdGUz5MziiL5jek2kBma", // okxdex
+  "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", //Raydium CPMM
 ]);
 
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";

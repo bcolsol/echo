@@ -24,7 +24,7 @@ const defaultSetupValues = {
   RPC_ENDPOINT: "https://api.mainnet-beta.solana.com",
   EXPLORER_URL: "https://solscan.io",
   COPY_TRADE_AMOUNT_SOL: "0.05", // Keep as string for input type
-  SLIPPAGE_BPS: 1000,
+  SLIPPAGE_BPS: 2000,
   EXECUTE_TRADES: true,
   MANAGE_WITH_SLTP: true,
   TAKE_PROFIT_PERCENTAGE: 20,
@@ -119,7 +119,7 @@ export async function runSetup(): Promise<void> {
     {
       type: "input",
       name: "BOT_PRIVATE_KEY",
-      message: "Enter your Bot Wallet Private Key (base58 encoded):",
+      message: "Enter your Bot Wallet Private Key:",
       validate: validatePrivateKey,
     },
     {
@@ -142,12 +142,6 @@ export async function runSetup(): Promise<void> {
         "Enter slippage tolerance in basis points (BPS). 100 BPS = 1% (e.g., 1000 for 10%):",
       default: defaultSetupValues.SLIPPAGE_BPS,
       validate: validateNonNegativeNumber,
-    },
-    {
-      type: "confirm",
-      name: "EXECUTE_TRADES",
-      message: "Execute REAL trades? (false for SIMULATION ONLY):",
-      default: defaultSetupValues.EXECUTE_TRADES,
     },
     {
       type: "input",
@@ -208,13 +202,6 @@ export async function runSetup(): Promise<void> {
           "Price check interval"
         ),
     },
-    {
-      type: "input",
-      name: "EXPLORER_URL",
-      message:
-        "Enter your preferred Solana explorer URL (e.g., https://solscan.io, optional):",
-      default: defaultSetupValues.EXPLORER_URL,
-    },
   ];
 
   const answers = await inquirer.prompt(questions);
@@ -230,11 +217,11 @@ export async function runSetup(): Promise<void> {
 
   const configData: ConfigData = {
     RPC_ENDPOINT: answers.RPC_ENDPOINT,
-    EXPLORER_URL: answers.EXPLORER_URL || defaultSetupValues.EXPLORER_URL,
+    EXPLORER_URL: defaultSetupValues.EXPLORER_URL,
     BOT_PRIVATE_KEY: answers.BOT_PRIVATE_KEY,
     COPY_TRADE_AMOUNT_SOL: copyTradeAmountSolNum, // Use the parsed number
     SLIPPAGE_BPS: answers.SLIPPAGE_BPS,
-    EXECUTE_TRADES: answers.EXECUTE_TRADES,
+    EXECUTE_TRADES: defaultSetupValues.EXECUTE_TRADES,
     MANAGE_WITH_SLTP: answers.MANAGE_WITH_SLTP,
     MONITORED_WALLETS_RAW: answers.MONITORED_WALLETS_RAW_STRING,
   };

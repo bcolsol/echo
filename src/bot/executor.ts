@@ -125,9 +125,6 @@ export class TradeExecutor {
     const tradeModeStatus = this.executeTrades
       ? "REAL EXECUTION"
       : "SIMULATION ONLY";
-    logInfo(
-      `[Bot-${botWalletShort}] Preparing copy trade (${tradeModeStatus}): Buy ${tokenInfo.symbol} for ${this.tradeAmountSol} SOL.`
-    );
 
     const quoteResponse = await getJupiterQuote(
       this.jupiterQuoteApiUrl,
@@ -146,15 +143,6 @@ export class TradeExecutor {
 
     const botExpectedTokensLamports = BigInt(quoteResponse.outAmount);
     const botSolCostLamports = BigInt(quoteResponse.inAmount); // Actual SOL cost for the quoted amount
-
-    logInfo(
-      `[Bot-${botWalletShort}] Jupiter Quote: Spend ~${(
-        Number(botSolCostLamports) / LAMPORTS_PER_SOL
-      ).toFixed(6)} SOL to get ~${(
-        Number(botExpectedTokensLamports) /
-        10 ** tokenInfo.decimals
-      ).toFixed(tokenInfo.decimals)} ${tokenInfo.symbol}.`
-    );
 
     const swapResponse = await getJupiterSwap(
       this.jupiterSwapApiUrl,
@@ -518,9 +506,6 @@ export class TradeExecutor {
         `[Bot-${botWalletShort}] ❌ ${tradeModeStatus} ${reasonFull} SELL of ${tokenInfo.symbol} FAILED. Holdings not removed.`
       );
     }
-    logInfo(
-      `[Bot-${botWalletShort}] --- ${reasonFull} processing for ${tokenInfo.symbol} END ---`
-    );
   }
 
   private async executeRealTradeInternal(
@@ -533,9 +518,7 @@ export class TradeExecutor {
       6
     );
     const typeUpper = tradeTypeContext.toUpperCase();
-    logInfo(
-      `[Bot-${botWalletShort}] -------- REAL ${typeUpper} EXECUTION START --------`
-    );
+
     let copyTradeTxId: string | undefined = undefined;
 
     try {
@@ -543,9 +526,7 @@ export class TradeExecutor {
       copyTradeTxId = await this.solanaClient.sendRawTransaction(
         rawTransaction
       );
-      logInfo(
-        `[Bot-${botWalletShort}] 🚀 ${typeUpper} Trade Sent! Sig: ${copyTradeTxId}`
-      );
+      logInfo(`[Bot-${botWalletShort}] 🚀 ${typeUpper} Trade Sent!`);
       logInfo(`-> Explorer: ${this.explorerUrl}/tx/${copyTradeTxId}`);
       logInfo(
         `[Bot-${botWalletShort}] ⏳ Waiting for confirmation ('${
@@ -574,10 +555,6 @@ export class TradeExecutor {
         );
       }
       return { success: false };
-    } finally {
-      logInfo(
-        `[Bot-${botWalletShort}] -------- REAL ${typeUpper} EXECUTION END --------`
-      );
     }
   }
 

@@ -45,11 +45,6 @@ async function priceMonitoringLoop(
   if (!MANAGE_WITH_SLTP) {
     return;
   }
-  logInfo(
-    `[PriceEngine] SL/TP price monitoring active. Interval: ${
-      PRICE_CHECK_INTERVAL_MS / 1000
-    }s`
-  );
 
   while (isPriceMonitoringRunning) {
     try {
@@ -57,7 +52,7 @@ async function priceMonitoringLoop(
       if (holdings.size === 0) {
       } else {
         logInfo(
-          `[PriceEngine] Checking prices for ${holdings.size} SL/TP managed holdings...`
+          `Checking prices for ${holdings.size} SL/TP managed holdings...`
         );
       }
 
@@ -84,7 +79,7 @@ async function priceMonitoringLoop(
 
         if (!currentPriceQuote || !currentPriceQuote.outAmount) {
           logWarn(
-            `[PriceEngine] Could not get price quote for ${tokenInfo.symbol} (${tokenMint}) to check SL/TP. Skipping this cycle.`
+            `Could not get price quote for ${tokenInfo.symbol} (${tokenMint}) to check SL/TP. Skipping this cycle.`
           );
           continue;
         }
@@ -102,7 +97,7 @@ async function priceMonitoringLoop(
         const currentPricePerTokenSol = currentValueInSol / tokensHeld;
 
         logInfo(
-          `[PriceEngine] ${
+          `${
             tokenInfo.symbol
           } | Avg Buy: ${holding.avgPurchasePriceInSol.toFixed(
             6
@@ -113,7 +108,7 @@ async function priceMonitoringLoop(
           holding.avgPurchasePriceInSol * (1 + TAKE_PROFIT_PERCENTAGE / 100);
         if (currentPricePerTokenSol >= tpPrice) {
           logInfo(
-            `[PriceEngine] 🎉 TAKE PROFIT for ${
+            `🎉 TAKE PROFIT for ${
               tokenInfo.symbol
             } at ${currentPricePerTokenSol.toFixed(
               6
@@ -133,7 +128,7 @@ async function priceMonitoringLoop(
           holding.avgPurchasePriceInSol * (1 - STOP_LOSS_PERCENTAGE / 100);
         if (currentPricePerTokenSol <= slPrice) {
           logInfo(
-            `[PriceEngine] 🛡️ STOP LOSS for ${
+            `🛡️ STOP LOSS for ${
               tokenInfo.symbol
             } at ${currentPricePerTokenSol.toFixed(
               6
@@ -150,11 +145,11 @@ async function priceMonitoringLoop(
         }
       }
     } catch (error) {
-      logError("[PriceEngine] Error in SL/TP price monitoring loop:", error);
+      logError("Error in SL/TP price monitoring loop:", error);
     }
     await sleep(PRICE_CHECK_INTERVAL_MS);
   }
-  logInfo("[PriceEngine] SL/TP Price monitoring loop stopped.");
+  logInfo("SL/TP Price monitoring loop stopped.");
 }
 
 async function main() {

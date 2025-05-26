@@ -1,10 +1,4 @@
-import {
-  Connection,
-  PublicKey,
-  Logs,
-  Commitment,
-  ParsedTransactionWithMeta,
-} from "@solana/web3.js"; // Added ParsedTransactionWithMeta
+import { Connection, PublicKey, Logs, Commitment } from "@solana/web3.js";
 import { SolanaClient } from "../solana/client";
 import { TokenMetadataService } from "../solana/tokenMetadata";
 import { TradeExecutor } from "./executor";
@@ -123,8 +117,6 @@ export class WalletMonitor {
       );
       return;
     }
-    // User sees this only if it's not an error and being processed further
-    logInfo(`[Monitor-${shortAddr}] Processing tx: ${signature}`);
 
     try {
       const transaction = await this.solanaClient.getParsedTransaction(
@@ -140,10 +132,6 @@ export class WalletMonitor {
       }
 
       if (isDexInteraction(transaction)) {
-        logInfo(
-          `[Monitor-${shortAddr}] DEX interaction detected in ${signature}. Analyzing...`
-        );
-
         const detectedTrade = await analyzeTrade(
           transaction,
           walletPubKey,
@@ -179,7 +167,8 @@ export class WalletMonitor {
         }
       } else {
         logInfo(
-          `[Monitor-${shortAddr}] Tx ${signature} is not a DEX interaction. Skipping detailed analysis.`
+          `[Monitor-${shortAddr}] Tx ${signature} is not a DEX interaction. Skipping detailed analysis.
+          If this is a mistake, please add the program ID to the DEX_PROGRAM_IDS in config/index.ts and restart the bot.`
         );
       }
     } catch (err) {
@@ -198,7 +187,7 @@ export class WalletMonitor {
     const promises = this.subscriptionIds.map((id) => {
       return this.connection
         .removeOnLogsListener(id)
-        .catch((err) => logError(`Error removing subscription ${id}: ${err}`)); // User needs to know if removal fails
+        .catch((err) => logError(`Error removing subscription ${id}: ${err}`));
     });
     await Promise.all(promises);
     this.subscriptionIds = [];
